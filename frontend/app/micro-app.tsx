@@ -118,9 +118,17 @@ type NativeLogLevel = "info" | "warn" | "error";
 // the OS opening the watch. Running them through one chain means each sees the finished
 // state of the last, so a watch or a foreground service can never be created after the
 // teardown that was meant to cancel it. The chain is module-level, not per screen, because
-// the background task, the buffer and the keep-awake tag are process-wide: opening another
-// micro app unmounts this screen, and its teardown must finish before the next app starts.
+// the background task and its buffer are process-wide: opening another micro app unmounts
+// this screen, and its teardown must finish before the next app starts.
 let locationQueue: Promise<unknown> = Promise.resolve();
+
+// The chain orders operations by when they were queued, not by which screen they belong
+// to, so a screen's unmount teardown can still run after the next screen has started.
+// Recording which screen holds the background task lets a teardown leave it alone once
+// another screen has taken it, instead of stopping that screen's background updates and
+// discarding its buffered fixes.
+let backgroundLocationOwner: number | null = null;
+let nextLocationScreenId = 0;
 
 const MicroApp = () => {
   const {
@@ -156,8 +164,6 @@ const MicroApp = () => {
       state.apps.apps.find((app) => app.appId === appId)?.requiredPermissions
   );
   const locationSub = useRef<LocationSubscription | null>(null);
-  // Set while a stream is open so AppState knows whether there is anything to flush.
-  const locationOptions = useRef<LocationRequestOptions | null>(null);
   // Timestamps already delivered, so a fix that arrives live and is also buffered is
   // not sent twice. Bounded alongside the buffer it guards.
   const deliveredFixTimestamps = useRef<Set<string>>(new Set());
@@ -168,6 +174,12 @@ const MicroApp = () => {
   // so a request sent while the manifest is still loading waits for it instead of being
   // rejected as undeclared.
   const devServerPermissions = useRef<Promise<string[]>>(Promise.resolve([]));
+  // Bumped whenever the Developer app's URL changes. A start requested by the previous
+  // page, or a fix from the stream it opened, must not reach the page that replaced it.
+  const devServerGeneration = useRef(0);
+  const [locationScreenId] = useState(() => nextLocationScreenId++);
+  // Per screen: a shared tag would let one screen's teardown release another's wake lock.
+  const keepAwakeTag = `${LOCATION_KEEP_AWAKE_TAG}:${locationScreenId}`;
   const isDeveloper: boolean = appId.includes("developer");
   const isTotp: boolean = appId.includes("totp");
   const insets = useSafeAreaInsets();
@@ -831,35 +843,49 @@ const MicroApp = () => {
   );
 
   /**
-   * Releases every resource a location stream holds.
+   * Releases every resource this screen's location stream holds, and the background task
+   * and buffer unless another screen holds them. A task nobody holds is left over from an
+   * earlier JS run, with no screen to deliver its fixes to, so it is stopped too.
    * Safe to call when no stream is running.
    */
   const teardownLocationStream = useCallback(async () => {
     locationSub.current?.remove();
     locationSub.current = null;
-    locationOptions.current = null;
 
-    await stopBackgroundLocationUpdates();
-    await clearLocationBuffer();
+    if (
+      backgroundLocationOwner === null ||
+      backgroundLocationOwner === locationScreenId
+    ) {
+      backgroundLocationOwner = null;
+      await stopBackgroundLocationUpdates();
+      await clearLocationBuffer();
+    }
 
     try {
       // deactivateKeepAwake() is async and rejects when the tag was never activated,
       // which is the normal case for a non-fullscreen micro app. Without the await the
       // catch never sees it and every teardown raises an unhandled rejection instead.
-      await deactivateKeepAwake(LOCATION_KEEP_AWAKE_TAG);
+      await deactivateKeepAwake(keepAwakeTag);
     } catch {
       // Not activated - nothing to release.
     }
-  }, []);
+  }, [keepAwakeTag, locationScreenId]);
 
   /**
    * Opens a position stream for the micro app.
-   * @param options - Stream options supplied by the micro app
+   * @param requested - Stream options supplied by the micro app
+   * @param generation - The Developer app URL generation the start was requested in
    */
   const startLocationUpdates = useCallback(
-    async (requested?: LocationRequestOptions | null) => {
+    async (
+      requested: LocationRequestOptions | null | undefined,
+      generation: number
+    ) => {
       // requestLocationUpdates() may be called with nothing, or with null.
       const options: LocationRequestOptions = requested ?? {};
+      // The Developer app's URL changed while this start waited: the page that asked
+      // is gone, so the start is dropped without answering the page that replaced it.
+      const isStale = () => generation !== devServerGeneration.current;
 
       // A host-level OS permission must not become an implicit grant to every micro
       // app: only an app that declared the capability may open a stream. The Developer
@@ -867,6 +893,7 @@ const MicroApp = () => {
       const declaredPermissions = isDeveloper
         ? await devServerPermissions.current
         : requiredPermissions;
+      if (isStale()) return;
       if (!declaredPermissions?.includes(LOCATION_PERMISSION)) {
         sendResponseToWeb(
           "rejectLocationUpdates",
@@ -885,6 +912,7 @@ const MicroApp = () => {
 
       const wantsBackground = options.background === true;
       const failure = await ensureLocationPermissions(wantsBackground);
+      if (isStale()) return;
       if (failure) {
         if (failure === "permission_denied") {
           locationPermissionDenied.current = true;
@@ -895,26 +923,37 @@ const MicroApp = () => {
 
       // Starting twice replaces the stream rather than stacking two watches.
       await teardownLocationStream();
+      if (isStale()) return;
 
       try {
-        locationOptions.current = options;
         locationSub.current = await startForegroundLocationStream(
           options,
-          deliverLocationFix
+          // A fix from a stream opened for the previous page is discarded; the stop the
+          // URL change queued closes the stream itself.
+          (fix) => {
+            if (!isStale()) deliverLocationFix(fix);
+          }
         );
 
         if (wantsBackground) {
+          // Only one background task exists, and this screen's own was released above.
+          // One still running is another screen's or left over from an earlier JS run:
+          // take it over, discarding its buffered fixes rather than delivering them here.
+          await stopBackgroundLocationUpdates();
+          await clearLocationBuffer();
+          backgroundLocationOwner = locationScreenId;
           await startBackgroundLocationUpdates(options, appName);
         }
 
         // A fullscreen app is the whole screen the driver is looking at; letting the
         // display sleep mid-route is indistinguishable from the app having crashed.
         if (!shouldShowHeader) {
-          await activateKeepAwakeAsync(LOCATION_KEEP_AWAKE_TAG);
+          await activateKeepAwakeAsync(keepAwakeTag);
         }
       } catch (error) {
         console.error("Failed to start location updates:", error);
         await teardownLocationStream();
+        if (isStale()) return;
         sendResponseToWeb(
           "rejectLocationUpdates",
           "unavailable" as LocationRejectReason
@@ -925,6 +964,8 @@ const MicroApp = () => {
       appName,
       deliverLocationFix,
       isDeveloper,
+      keepAwakeTag,
+      locationScreenId,
       requiredPermissions,
       sendResponseToWeb,
       shouldShowHeader,
@@ -956,16 +997,20 @@ const MicroApp = () => {
 
   // Flush fixes recorded while the WebView's JS was suspended. Each carries the
   // timestamp it was taken at, so the consumer can order them against live fixes.
+  // Only the screen holding the background task drains the buffer: the fixes in it are
+  // that screen's stream, and a drain is destructive.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", async (state) => {
-      if (state !== "active" || !locationOptions.current?.background) return;
+      if (state !== "active" || backgroundLocationOwner !== locationScreenId) {
+        return;
+      }
 
       const buffered = await drainLocationBuffer();
       buffered.forEach((fix) => deliverLocationFix({ ...fix, buffered: true }));
     });
 
     return () => subscription.remove();
-  }, [deliverLocationFix]);
+  }, [deliverLocationFix, locationScreenId]);
 
   // A watch that outlives the screen drains the battery invisibly - nothing on screen
   // says it is still running - so tear it down when the micro app is navigated away from.
@@ -975,16 +1020,15 @@ const MicroApp = () => {
     };
   }, [enqueueLocationTask, teardownLocationStream]);
 
-  // A new Developer app URL is a new app: re-read what it declares, and close any stream
-  // the previous page opened. Only this screen's own stream - the background task is
-  // shared, so stopping it unconditionally would end another screen's stream.
+  // A new Developer app URL is a new app: re-read what it declares, drop any start the
+  // previous page requested, and close the stream it opened. The teardown releases the
+  // background task only if this screen holds it, so another screen's is left running.
   useEffect(() => {
     if (!isDeveloper) return;
 
+    devServerGeneration.current += 1;
     devServerPermissions.current = fetchDevServerPermissions(webUri);
-    void enqueueLocationTask(async () => {
-      if (locationOptions.current) await stopLocationUpdates();
-    });
+    void enqueueLocationTask(stopLocationUpdates);
   }, [enqueueLocationTask, isDeveloper, stopLocationUpdates, webUri]);
 
   // Handle messages from WebView
@@ -1111,9 +1155,14 @@ const MicroApp = () => {
         case TOPIC.GET_LAUNCH_DATA:
           await handleGetLaunchData();
           break;
-        case TOPIC.LOCATION_START:
-          await enqueueLocationTask(() => startLocationUpdates(data));
+        case TOPIC.LOCATION_START: {
+          // Read on receipt, not when the queued start runs: the URL can change between.
+          const generation = devServerGeneration.current;
+          await enqueueLocationTask(() =>
+            startLocationUpdates(data, generation)
+          );
           break;
+        }
         case TOPIC.LOCATION_STOP:
           await enqueueLocationTask(stopLocationUpdates);
           break;
