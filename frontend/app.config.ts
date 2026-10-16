@@ -104,15 +104,18 @@ let config: ExpoConfig = {
       // never see that Wallet has it, so hasPass and viewInWallet both answer
       // false and the "Open in Apple Wallet" button does nothing.
       //
-      // The team-prefix wildcard is what Xcode's own Wallet capability
-      // generates, and it avoids hardcoding the team id here. Set only when a
-      // pass type is configured: the entitlement has to be on the
-      // provisioning profile too, and signing fails on a profile without it.
+      // Scoped to the one pass type the app actually asks about rather than
+      // the team-prefix wildcard Xcode's Wallet capability generates by
+      // default: services/wallet/passPresence.ios.ts only ever passes
+      // APPLE_PASS_TYPE_ID to hasPass and viewInWallet, so the wildcard would
+      // buy visibility of every pass type registered under the team for no
+      // functional gain. No team id is hardcoded either way — the value comes
+      // from the environment. Set only when a pass type is configured: the
+      // entitlement has to be on the provisioning profile too, and signing
+      // fails on a profile without it.
       ...(APPLE_PASS_TYPE_ID
         ? {
-            "com.apple.developer.pass-type-identifiers": [
-              "$(TeamIdentifierPrefix)*",
-            ],
+            "com.apple.developer.pass-type-identifiers": [APPLE_PASS_TYPE_ID],
           }
         : {}),
     },

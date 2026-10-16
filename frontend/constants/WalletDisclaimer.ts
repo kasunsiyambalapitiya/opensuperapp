@@ -38,8 +38,23 @@
  * longer exists.
  *
  * The copy is markdown and is rendered by react-native-markdown-display, so the
- * emphasis and the mailto: link below are load-bearing rather than decorative.
+ * emphasis and the links below are load-bearing rather than decorative.
  */
+
+/**
+ * WSO2's public, external-facing privacy policy — the document the disclosure
+ * points at for what governs this processing. Public and the same everywhere,
+ * so it is a constant rather than configuration: the deployment-specific
+ * internal People Operations URL is what this file deliberately does not carry.
+ */
+export const WSO2_PRIVACY_POLICY_URL = "https://wso2.com/privacy-policy";
+
+/**
+ * Google's privacy policy, named by the Google disclosure as covering what
+ * Google does with the card once it holds one. Naming a document without
+ * linking it is the one thing a disclosure screen cannot afford.
+ */
+export const GOOGLE_PRIVACY_POLICY_URL = "https://policies.google.com/privacy";
 
 /** Data Protection Officer, per §8.0 of the People Operations policy. */
 export const DPO_EMAIL = "dpo@wso2.com";
@@ -70,16 +85,21 @@ The card also carries a QR code holding the same details as a contact file, so a
  * five rights and reciting all of them here would bury the sentence that
  * matters, which is that this is governed and reversible.
  *
+ * The closing sentence names the control the employee actually taps. Apple's
+ * PKAddPassButton and Google's add artwork both read "Add to <wallet>", so that
+ * is the phrase the terms have to use: an acceptance clause pointing at a
+ * button the app does not have is not an acceptance clause.
+ *
  * @param wallet - The vendor wallet's name, as it appears on its add button.
  * @returns The closing section of the disclaimer.
  */
 const yourRights = (wallet: string) => `## Your data
 
-These are employee details, and WSO2 processes them as explained here. You can ask to see, correct or erase them at any time, and you can delete the card from your wallet whenever you like.
+These are employee details, and WSO2 processes them under the [WSO2 Privacy Policy](${WSO2_PRIVACY_POLICY_URL}). You can ask to see, correct or erase them at any time, and you can delete the card from your wallet whenever you like.
 
 Any questions related to the data processing can be directed to [${DPO_EMAIL}](mailto:${DPO_EMAIL}).
 
-By clicking “Continue with the ${wallet}” to access or use the ${wallet}, you acknowledge and agree to these Terms. If you do not agree to these Terms, please do not click “Continue with the ${wallet}” or proceed with accessing or using the ${wallet}.`;
+By tapping **Add to ${wallet}** you acknowledge and agree to these Terms. If you do not agree to them, do not add the card.`;
 
 /** Disclaimer copy for Apple Wallet. */
 export const APPLE_WALLET_DISCLAIMER_MD = `${WHAT_IS_USED}
@@ -97,6 +117,6 @@ export const GOOGLE_WALLET_DISCLAIMER_MD = `${WHAT_IS_USED}
 
 ## How it works
 
-WSO2 builds the card and saves it to **Google Wallet**. Unlike a card held only on your phone, Google stores and renders this one on **Google's servers** — so saving it **shares the details above with Google**, and Google fetches your directory photo from WSO2. Google's own privacy policy covers what it does with them from there.
+WSO2 builds the card and saves it to **Google Wallet**. Unlike a card held only on your phone, Google stores and renders this one on **Google's servers** — so saving it **shares the details above with Google**, and Google fetches your directory photo from WSO2. [Google's own privacy policy](${GOOGLE_PRIVACY_POLICY_URL}) covers what it does with them from there.
 
 ${yourRights("Google Wallet")}`;

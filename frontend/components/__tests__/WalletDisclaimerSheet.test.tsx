@@ -167,12 +167,22 @@ describe("WalletDisclaimerSheet — the disclosure each platform owes", () => {
     expect(copy(root)).toContain("shares the details above with Google");
   });
 
-  it("names the wallet it is about in the terms it asks agreement to", () => {
-    expect(copy(render(AppleSheet).root)).toContain(
-      "Continue with the Apple Wallet",
-    );
-    expect(copy(render(AndroidSheet).root)).toContain(
-      "Continue with the Google Wallet",
-    );
+  // The acceptance clause has to name the control the employee actually taps —
+  // Apple's PKAddPassButton and Google's add artwork both read "Add to
+  // <wallet>". Naming anything else points the terms at a button the app does
+  // not have, which is how "Continue with the Apple Wallet" got here.
+  it("asks agreement by naming the add button the employee really taps", () => {
+    expect(copy(render(AppleSheet).root)).toContain("Add to Apple Wallet");
+    expect(copy(render(AppleSheet).root)).not.toContain("Continue");
+    expect(copy(render(AndroidSheet).root)).toContain("Add to Google Wallet");
+    expect(copy(render(AndroidSheet).root)).not.toContain("Continue");
+  });
+
+  // Naming a governing document without linking it is the one thing a
+  // disclosure screen cannot afford, so both documents carry a reachable
+  // policy link rather than only the DPO's address.
+  it("links the policy it says governs the processing", () => {
+    expect(copy(render(AppleSheet).root)).toContain("WSO2 Privacy Policy");
+    expect(copy(render(AndroidSheet).root)).toContain("WSO2 Privacy Policy");
   });
 });

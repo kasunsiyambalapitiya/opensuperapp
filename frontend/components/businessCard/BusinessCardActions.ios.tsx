@@ -29,10 +29,6 @@ type Props = {
   passInWallet: boolean;
   onSavePass: () => void;
   onOpenWallet: () => void;
-  // Accepted so both platform files take the same props, and deliberately
-  // unused here: PassKit answers the presence question itself, so "Add again"
-  // could only offer to re-add a card iOS has just confirmed is installed.
-  onAddAgain: () => void;
   onShareVCard: () => void;
   onSaveAsImage: () => void;
   // Opens the disclaimer describing what the wallet does with the card. Only

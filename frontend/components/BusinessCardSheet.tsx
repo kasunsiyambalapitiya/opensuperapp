@@ -49,7 +49,6 @@ const BusinessCardSheet = ({ visible, onClose }: Props) => {
     saveAsImage,
     savePass,
     openWallet,
-    addPassAgain,
   } = useBusinessCardActions(visible);
 
   return (
@@ -77,7 +76,6 @@ const BusinessCardSheet = ({ visible, onClose }: Props) => {
               passInWallet={passInWallet}
               onSavePass={savePass}
               onOpenWallet={openWallet}
-              onAddAgain={addPassAgain}
               onShareVCard={shareContactFile}
               onSaveAsImage={saveAsImage}
               onShowDisclaimer={showDisclaimer}

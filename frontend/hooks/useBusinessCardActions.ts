@@ -49,7 +49,7 @@ export const useBusinessCardActions = (visible: boolean) => {
   const { walletDownloadEnabled } = useWalletPassConfig();
   // The pass serial number is the JWT `userid`, not the work email — the same
   // identity key the wallet service builds passes under.
-  const { inWallet, markAdded, openInWallet, addAgain } = useWalletPassPresence(
+  const { inWallet, markAdded, openInWallet } = useWalletPassPresence(
     visible,
     claims?.userid,
   );
@@ -136,11 +136,6 @@ export const useBusinessCardActions = (visible: boolean) => {
       if (added) {
         logAnalyticsEvent("wallet_pass_added");
         await markAdded();
-        // Closed only once the pass is really in, so the consent sheet keeps
-        // its spinner for the whole call and a failure leaves the employee on
-        // the screen they can retry from rather than back on a card that looks
-        // untouched.
-        setDisclaimerVisible(false);
       }
     } finally {
       savingRef.current = false;
@@ -164,6 +159,5 @@ export const useBusinessCardActions = (visible: boolean) => {
     saveAsImage,
     savePass,
     openWallet: openInWallet,
-    addPassAgain: addAgain,
   };
 };

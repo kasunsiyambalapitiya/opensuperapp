@@ -26,14 +26,13 @@ type Props = {
   saving: boolean;
   walletDownloadEnabled: boolean;
   // Accepted so both platform files take the same props, and deliberately
-  // unused here, along with onOpenWallet and onAddAgain. Google offers no way
-  // to ask what a wallet holds, so this could only ever be a marker of what
-  // this device last did — and acting on it took the add button away from an
-  // employee whose card is not actually there. See below.
+  // unused here, along with onOpenWallet. Google offers no way to ask what a
+  // wallet holds, so this could only ever be a marker of what this device last
+  // did — and acting on it took the add button away from an employee whose
+  // card is not actually there. See below.
   passInWallet: boolean;
   onSavePass: () => void;
   onOpenWallet: () => void;
-  onAddAgain: () => void;
   onShareVCard: () => void;
   onSaveAsImage: () => void;
   // Opens the disclaimer describing what the wallet does with the card. Only

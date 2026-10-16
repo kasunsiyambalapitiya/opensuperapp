@@ -72,7 +72,6 @@ type Actions = typeof AppleActions | typeof AndroidActions;
 const handlers = () => ({
   onSavePass: jest.fn(),
   onOpenWallet: jest.fn(),
-  onAddAgain: jest.fn(),
   onShareVCard: jest.fn(),
   onSaveAsImage: jest.fn(),
   onShowDisclaimer: jest.fn(),

@@ -29,12 +29,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 type Props = {
   onShareVCard: () => void;
   onSaveAsImage: () => void;
-  // Shown only once the card is already in the wallet, where the primary slot
-  // holds "Open" and there is otherwise no way back to adding it. That case is
-  // real on Android, which cannot ask Google Wallet what it holds and so is
-  // going on what this device last did; on iOS PassKit answers directly and
-  // this is a no-op the employee should never need.
-  onAddAgain?: () => void;
   // Opens the platform's wallet disclaimer. Passed only where there is a wallet
   // download to disclose anything about: with the remote config flag off the
   // card never reaches a wallet, so a notice explaining what a wallet does with
@@ -51,7 +45,6 @@ type Props = {
 const BusinessCardActionsFooter = ({
   onShareVCard,
   onSaveAsImage,
-  onAddAgain,
   onShowDisclaimer,
   children,
 }: Props) => {
@@ -97,19 +90,6 @@ const BusinessCardActionsFooter = ({
               accessibilityLabel="save_card_image"
             >
               <Text style={styles.secondaryActionText}>Save as image</Text>
-            </Pressable>
-          </>
-        )}
-        {onAddAgain && (
-          <>
-            <Text style={styles.secondaryActionSeparator}>·</Text>
-            <Pressable
-              onPress={onAddAgain}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="add_to_wallet_again"
-            >
-              <Text style={styles.secondaryActionText}>Add again</Text>
             </Pressable>
           </>
         )}
