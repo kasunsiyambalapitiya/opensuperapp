@@ -145,8 +145,15 @@ public isolated function walletFailure(string operation, string userId, wallet:W
 # Records an issued wallet pass in the audit log.
 #
 # Called only once the wallet service has actually returned a pass, so a failed issuance never
-# shows up as a success. The write itself is best effort: the caller already has their pass by
-# the time this runs, so a database failure is logged rather than turned into a failed request.
+# shows up as a success. The write is best effort and a database failure is logged rather than
+# turned into a failed request: the pass is already built by the time this runs, and losing an
+# audit row is preferable to withholding a pass that was issued successfully.
+#
+# Callers dispatch this on its own strand (`start`) so a slow or unreachable database cannot add
+# its connection and query wait to a request whose pass is ready to send. The tradeoff is that
+# the row is lost if the process dies between the response going out and the insert landing;
+# the audit log is therefore a record of issuance on a best-effort basis, not a ledger that can
+# be relied on to account for every pass ever issued.
 #
 # + userInfo - Claims of the caller, extracted from the access token by the JWT interceptor
 # + action - Audit action to record

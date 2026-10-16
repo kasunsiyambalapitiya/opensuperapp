@@ -41,14 +41,23 @@ export const apiRequest = async (
 
   // Set Authorization Header
   //
-  // `x-user-assertion` carries the same token and is what the backend forwards to other
-  // with a JWT it mints itself, so that header cannot be replayed downstream; this custom
-  // one is passed through untouched. The chat agent already relies on the same header.
+  // An API gateway in front of the service overwrites `x-jwt-assertion` with a JWT it mints
+  // itself, so the client's own access token cannot be carried there. It travels in
+  // `x-user-assertion`, which the gateway passes through untouched. Only the endpoints that
+  // need to call a downstream service with the caller's token read it, so the call site opts
+  // in (see services/walletPassService.ts) rather than every request carrying a second,
+  // unredacted copy of the token.
   config.headers = {
     ...config.headers,
     Authorization: `Bearer ${accessToken}`,
-    "x-user-assertion": accessToken,
   };
+
+  // The backend reads `x-user-assertion` in preference to `Authorization`, so an opted-in
+  // value the caller set before the refresh above would override the fresh bearer token with
+  // the one this handler has just replaced.
+  if (config.headers["x-user-assertion"]) {
+    config.headers["x-user-assertion"] = accessToken;
+  }
 
   if (__DEV__) {
     config.headers["x-jwt-assertion"] = accessToken;
@@ -62,7 +71,9 @@ export const apiRequest = async (
       if (newAuthData?.accessToken) {
         // Retry the request with the new token
         config.headers.Authorization = `Bearer ${newAuthData.accessToken}`;
-        config.headers["x-user-assertion"] = newAuthData.accessToken;
+        if (config.headers["x-user-assertion"]) {
+          config.headers["x-user-assertion"] = newAuthData.accessToken;
+        }
         if (__DEV__) {
           config.headers["x-jwt-assertion"] = newAuthData.accessToken;
         }
@@ -90,8 +101,9 @@ const isAccessTokenExpired = (accessToken: string): boolean => {
   }
 };
 
-// Helper function to get the stored access token
-const getAccessToken = async (): Promise<string> => {
+// Helper function to get the stored access token. Exported for the call sites that opt into
+// `x-user-assertion`, so they read the token from the same place this handler does.
+export const getAccessToken = async (): Promise<string> => {
   const secureStore = await loadAuthDataFromSecureStore();
   if (!secureStore) return "";
   return secureStore?.accessToken || "";

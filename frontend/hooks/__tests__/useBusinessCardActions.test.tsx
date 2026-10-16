@@ -145,6 +145,13 @@ describe("useBusinessCardActions", () => {
     mockSaveBusinessCardPass.mockResolvedValue(false);
     const actions = await renderActions();
 
+    // Opened the way the employee opens it, so the assertion below is about the
+    // sheet surviving the failed save rather than about it never having shown.
+    await act(async () => {
+      actions().savePass();
+    });
+    expect(actions().disclaimerVisible).toBe(true);
+
     await act(async () => {
       await actions().acceptDisclaimer();
     });
@@ -154,5 +161,8 @@ describe("useBusinessCardActions", () => {
 
     expect(mockSaveBusinessCardPass).toHaveBeenCalledTimes(2);
     expect(actions().saving).toBe(false);
+    // The retry is only reachable from the consent sheet, so the sheet having
+    // stayed up is the whole point rather than an incidental detail.
+    expect(actions().disclaimerVisible).toBe(true);
   });
 });

@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 export type WalletPassPresence = {
   /** Whether the card is already in the wallet, so the add action is done. */
   inWallet: boolean;
-  /** Records a completed add and flips `inWallet` without a round trip. */
+  /** Records an add, then re-asks the wallet whether it really landed. */
   markAdded: () => Promise<void>;
   /** Opens the wallet on the card. */
   openInWallet: () => Promise<void>;
@@ -78,12 +78,26 @@ export const useWalletPassPresence = (
     };
   }, [visible, serialNumber]);
 
+  // The add is recorded and then checked, never assumed. On iOS the native add
+  // reports success as soon as the add-pass controller is *presented*, not when
+  // the employee taps Add, so flipping on that word alone would offer "Open in
+  // Apple Wallet" for a pass PassKit was never given — and `addAgain` is not
+  // wired up on iOS, so there is no way back from that short of reopening the
+  // card sheet. One re-query covers both platforms: iOS asks PassKit, Android
+  // reads the marker just written.
+  //
+  // The tradeoff is the opposite error. PassKit may not have registered the
+  // pass by the time its sheet is dismissed, so a genuine add can still read as
+  // absent here. That is the error worth having: it leaves the add button up,
+  // which the next open re-checks and the employee can simply tap again,
+  // whereas overstating presence is the dead end. So the answer is taken at
+  // face value rather than being widened by the add's own say-so.
   const markAdded = useCallback(async () => {
     if (!serialNumber) {
       return;
     }
     await markPassAdded(serialNumber);
-    setInWallet(true);
+    setInWallet(await isPassInWallet(serialNumber));
   }, [serialNumber]);
 
   const openInWallet = useCallback(async () => {

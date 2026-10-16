@@ -108,6 +108,16 @@ jest.mock("@/services/wallet/passPresence", () => ({
   openPassInWallet: jest.fn().mockResolvedValue(true),
 }));
 
+// PassKit's PKAddPassButton, behind a local Expo module with no JS fallback:
+// under Jest the real module finds no native module and reports itself
+// unavailable, at which point `BusinessCardActions.ios` deliberately hands the
+// footer no wallet button at all. This suite is about the sheet's consent
+// wiring on a device where the control does exist, so say so here.
+jest.mock("@/modules/apple-wallet-button", () => ({
+  AppleWalletButtonView: () => null,
+  isAppleWalletButtonAvailable: true,
+}));
+
 // Rendering the consent copy is WalletDisclaimerSheet's own suite's job. Here
 // the markdown body only has to mount.
 jest.mock("react-native-markdown-display", () => {
@@ -266,6 +276,9 @@ describe("BusinessCardSheet", () => {
           )[0]
           .props.onPress();
       });
+      // The consent sheet closes on a pass that was actually built, not on the
+      // attempt: a failed save leaves it up to be retried from.
+      (saveBusinessCardPass as jest.Mock).mockResolvedValueOnce(true);
       await act(async () => {
         await disclaimerSheet(root).props.onProceed();
       });

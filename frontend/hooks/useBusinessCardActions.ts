@@ -141,11 +141,12 @@ export const useBusinessCardActions = (visible: boolean) => {
       if (added) {
         logAnalyticsEvent("wallet_pass_added");
         await markAdded();
+        // Closed only once the pass is really in, so the consent sheet keeps
+        // its spinner for the whole call and a failure leaves the employee on
+        // the screen they can retry from rather than back on a card that looks
+        // untouched.
+        setDisclaimerVisible(false);
       }
-      // Only on the way out, so the consent sheet keeps its spinner for the
-      // whole call and a failure leaves the employee on the screen they can
-      // retry from rather than back on a card that looks untouched.
-      setDisclaimerVisible(false);
     } finally {
       savingRef.current = false;
       setSaving(false);

@@ -23,13 +23,14 @@ import { Linking } from "react-native";
 // previous employee's answer.
 const ADDED_KEY_PREFIX = "wallet_pass_added:";
 
-// Launching Google Wallet by package is the accurate destination when it is
-// installed. `Linking.openURL` hands an intent: URI straight to
-// Intent.parseUri, and throws when nothing resolves it — which is exactly the
-// signal to fall back to the web wallet rather than leaving the user on a
-// button that does nothing.
-const GOOGLE_WALLET_APP_INTENT_URL =
-  "intent://wallet.google.com/#Intent;scheme=https;package=com.google.android.apps.walletnfcrel;end";
+// The https URL, not a package-targeted launch. React Native's openURL only
+// ever builds Intent(ACTION_VIEW, Uri.parse(url)) — it never calls
+// Intent.parseUri — so an `intent://` URI is treated as a scheme nothing
+// registers and openURL simply rejects. Targeting the Wallet package properly
+// would mean expo-intent-launcher plus an Android 11+ <queries> manifest entry,
+// which is not worth it here: Google Wallet claims wallet.google.com as an app
+// link, so an installed app opens on this URL anyway and a device without it
+// lands on the web wallet instead of a dead button.
 const GOOGLE_WALLET_WEB_URL = "https://wallet.google.com/";
 
 const addedKey = (serialNumber: string): string =>
@@ -89,7 +90,8 @@ export const markPassAdded = async (serialNumber: string): Promise<void> => {
 };
 
 /**
- * Opens the Google Wallet app, falling back to the web wallet.
+ * Opens Google Wallet — the installed app via its app link, the web wallet
+ * otherwise.
  *
  * There is no deep link to one specific object without its Google-side object
  * id, which the app never sees, so this lands on the wallet rather than on the
@@ -97,7 +99,7 @@ export const markPassAdded = async (serialNumber: string): Promise<void> => {
  * across both platforms and to refuse the action when there is no card to open.
  *
  * @param {string} serialNumber - The pass serial number, the JWT `userid`.
- * @returns {Promise<boolean>} True when either destination opened.
+ * @returns {Promise<boolean>} True when the wallet opened.
  */
 export const openPassInWallet = async (
   serialNumber: string,
@@ -107,15 +109,10 @@ export const openPassInWallet = async (
   }
 
   try {
-    await Linking.openURL(GOOGLE_WALLET_APP_INTENT_URL);
+    await Linking.openURL(GOOGLE_WALLET_WEB_URL);
     return true;
-  } catch {
-    try {
-      await Linking.openURL(GOOGLE_WALLET_WEB_URL);
-      return true;
-    } catch (error) {
-      console.error("Could not open Google Wallet.", error);
-      return false;
-    }
+  } catch (error) {
+    console.error("Could not open Google Wallet.", error);
+    return false;
   }
 };

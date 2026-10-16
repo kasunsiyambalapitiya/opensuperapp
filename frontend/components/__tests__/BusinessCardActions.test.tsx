@@ -43,10 +43,25 @@ jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 // null under Jest. Standing a component in its place keeps the iOS tree
 // mountable and gives the assertions below an identity to search for; what is
 // asserted is the props the app hands the control, which is all the JS owns.
-jest.mock("@/modules/apple-wallet-button", () => ({
-  AppleWalletButtonView: jest.fn(() => null),
-  isAppleWalletButtonAvailable: true,
-}));
+// `isAppleWalletButtonAvailable` is a getter over mutable state so the
+// no-native-module case below can flip it; the real module decides it once, at
+// import time, from whether `requireOptionalNativeModule` found the module.
+jest.mock("@/modules/apple-wallet-button", () => {
+  const state = { available: true };
+  return {
+    AppleWalletButtonView: jest.fn(() => null),
+    get isAppleWalletButtonAvailable() {
+      return state.available;
+    },
+    __setAvailable(available: boolean) {
+      state.available = available;
+    },
+  };
+});
+
+const walletButtonMock = jest.requireMock("@/modules/apple-wallet-button") as {
+  __setAvailable: (available: boolean) => void;
+};
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
@@ -192,6 +207,65 @@ describe("BusinessCardActions (iOS) — PKAddPassButton", () => {
     expect(root.root.findAllByType(AppleWalletButtonView!)).toHaveLength(0);
     expect(button(root).props.onPress).toBeUndefined();
     expect(button(root).props.accessibilityState).toEqual({ disabled: true });
+  });
+});
+
+// A build without the native module — a dev client, or any bundle whose
+// autolinking did not pick the local Expo module up — leaves
+// `AppleWalletButtonView` null, so `AddToAppleWalletButton` renders nothing.
+// The iOS file has to pass the footer no children at all in that case: an
+// element that draws nothing still reads as "a wallet button is here", which
+// suppresses the footer's own primary "Save image" and leaves the primary slot
+// empty with no way to save the card.
+describe("BusinessCardActions (iOS) — native control unavailable", () => {
+  beforeEach(() => walletButtonMock.__setAvailable(false));
+  afterEach(() => walletButtonMock.__setAvailable(true));
+
+  it("renders no wallet affordance", () => {
+    const { root } = render(AppleActions, false);
+
+    expect(root.root.findAllByType(AddToAppleWalletButton)).toHaveLength(0);
+    expect(root.root.findAllByType(AppleWalletButtonView!)).toHaveLength(0);
+    expect(
+      root.root.findAllByProps(
+        { accessibilityLabel: "save_business_card" },
+        { deep: false },
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("falls back to the footer's primary Save image button", () => {
+    const { root, props } = render(AppleActions, false);
+
+    const saveImage = root.root.findByProps({
+      accessibilityLabel: "save_card_image",
+    });
+    expect(saveImage.props.accessibilityRole).toBe("button");
+
+    act(() => saveImage.props.onPress());
+    expect(props.onSaveAsImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves exactly one Save image affordance, not a primary and a secondary", () => {
+    const { root } = render(AppleActions, false);
+    expect(
+      root.root.findAllByProps(
+        { accessibilityLabel: "save_card_image" },
+        { deep: false },
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("still offers Open in Apple Wallet once the card is installed", () => {
+    // Drawn in app chrome, not by PassKit, so it needs no native module.
+    const { root, props } = render(AppleActions, false, true, true);
+
+    act(() =>
+      root.root
+        .findByProps({ accessibilityLabel: "open_wallet_app" })
+        .props.onPress(),
+    );
+    expect(props.onOpenWallet).toHaveBeenCalledTimes(1);
   });
 });
 

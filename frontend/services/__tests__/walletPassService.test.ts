@@ -17,12 +17,13 @@ import {
   addToAppleWallet,
   addToGoogleWallet,
 } from "@/services/walletPassService";
-import { apiRequest } from "@/utils/requestHandler";
+import { apiRequest, getAccessToken } from "@/utils/requestHandler";
 import * as Sharing from "expo-sharing";
 import { Alert, Linking } from "react-native";
 
 jest.mock("@/utils/requestHandler", () => ({
   apiRequest: jest.fn(),
+  getAccessToken: jest.fn(),
 }));
 
 // The endpoint URLs are built when the service loads, so the base URL is
@@ -90,9 +91,15 @@ jest.mock("expo-file-system", () => {
 
 const onLogout = jest.fn().mockResolvedValue(undefined);
 
+// The two business-card endpoints are the only backend calls that pass the
+// caller's raw token on in `x-user-assertion`, so the token is pinned here to
+// assert the header is set per call rather than by the shared request handler.
+const ACCESS_TOKEN = "header.payload.signature";
+
 describe("addToAppleWallet", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getAccessToken as jest.Mock).mockResolvedValue(ACCESS_TOKEN);
     lastFileUri = "";
   });
 
@@ -111,6 +118,7 @@ describe("addToAppleWallet", () => {
         url: "https://backend.example.com/business-card/pkpass",
         method: "GET",
         responseType: "arraybuffer",
+        headers: { "x-user-assertion": ACCESS_TOKEN },
       }),
       onLogout
     );
@@ -163,6 +171,7 @@ describe("addToAppleWallet", () => {
 describe("addToGoogleWallet", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getAccessToken as jest.Mock).mockResolvedValue(ACCESS_TOKEN);
   });
 
   it("calls the save-url endpoint and opens the returned URL", async () => {
@@ -179,6 +188,7 @@ describe("addToGoogleWallet", () => {
       expect.objectContaining({
         url: "https://backend.example.com/business-card/google-save-url",
         method: "GET",
+        headers: { "x-user-assertion": ACCESS_TOKEN },
       }),
       onLogout
     );

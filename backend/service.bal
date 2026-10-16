@@ -193,7 +193,9 @@ service http:InterceptableService / on new http:Listener(9090, config = {request
             return walletFailure("Apple Wallet pass", userInfo.userId, pass);
         }
 
-        recordWalletPassAudit(userInfo, AUDIT_ACTION_APPLE_WALLET_PASS_ISSUED,
+        // Off the request path: the pass is built, so the audit insert must not add database
+        // latency to a response that is ready to send. See `recordWalletPassAudit`.
+        future<()> _ = start recordWalletPassAudit(userInfo, AUDIT_ACTION_APPLE_WALLET_PASS_ISSUED,
                 "Issued an Apple Wallet business card pass", "apple");
 
         http:Response response = new;
@@ -248,7 +250,9 @@ service http:InterceptableService / on new http:Listener(9090, config = {request
             return walletFailure("Google Wallet save URL", userInfo.userId, saveUrl);
         }
 
-        recordWalletPassAudit(userInfo, AUDIT_ACTION_GOOGLE_WALLET_PASS_ISSUED,
+        // Off the request path: the save URL is built, so the audit insert must not add
+        // database latency to a response that is ready to send. See `recordWalletPassAudit`.
+        future<()> _ = start recordWalletPassAudit(userInfo, AUDIT_ACTION_GOOGLE_WALLET_PASS_ISSUED,
                 "Issued a Google Wallet business card pass", "google");
 
         return saveUrl;

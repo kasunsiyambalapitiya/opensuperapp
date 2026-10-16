@@ -46,9 +46,13 @@ app-example
 # Google service(s) configuration(s)
 google-services/
 
-# builds
-android/
-ios/
+# Prebuild output, at the frontend root only. The leading slash matters:
+# unanchored, `ios/` matches a directory of that name at any depth, which
+# silently excluded `modules/apple-wallet-button/ios/` and shipped a local
+# Expo module declared in expo-module.config.json with no native sources
+# behind it. Keep these anchored rather than adding negations per module.
+/android/
+/ios/
 
 app.json
 

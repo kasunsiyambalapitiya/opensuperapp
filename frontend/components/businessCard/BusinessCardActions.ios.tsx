@@ -17,6 +17,7 @@ import BusinessCardActionsFooter from "@/components/businessCard/BusinessCardAct
 import OpenInWalletButton from "@/components/businessCard/OpenInWalletButton";
 import AddToAppleWalletButton from "@/components/wallet/AddToAppleWalletButton";
 import { APPLE_ADD_PASS_BUTTON } from "@/constants/WalletButton";
+import { isAppleWalletButtonAvailable } from "@/modules/apple-wallet-button";
 import React from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
@@ -72,7 +73,7 @@ const BusinessCardActions = ({
         >
           <ActivityIndicator />
         </View>
-      ) : (
+      ) : isAppleWalletButtonAvailable ? (
         // No Pressable around it: the control handles its own touches and
         // reports them through the module's onPress. No accessibilityRole and
         // no accessibilityHint either — PKAddPassButton is itself an
@@ -86,6 +87,17 @@ const BusinessCardActions = ({
           style={styles.button}
           accessibilityLabel="save_business_card"
         />
+      ) : (
+        // No PassKit control in this build — a dev client, or a bundle whose
+        // autolinking missed the local module — and Apple allows nothing else
+        // to offer the action, so `AddToAppleWalletButton` would render null.
+        // Hand the footer no children rather than an element that draws
+        // nothing: an element keeps its `hasWallet` true, which suppresses the
+        // primary "Save image" and leaves the slot blank with no way to save
+        // the card at all. `undefined` is the wallet-disabled case it already
+        // handles. Only this branch degrades; "Open in Apple Wallet" and the
+        // pending spinner above are app chrome that needs no native module.
+        undefined
       )
     ) : undefined}
   </BusinessCardActionsFooter>

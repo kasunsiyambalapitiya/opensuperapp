@@ -54,10 +54,15 @@ export const DPO_EMAIL = "dpo@wso2.com";
  * The part both platforms share: what leaves your profile and goes onto the
  * pass. Written as the fields an employee recognises from their own profile,
  * not as the JSON keys the service uses.
+ *
+ * The personal mobile number is stated as unconditional because it is: there is
+ * no opt-in anywhere in the app or the backend, and the pass carries the number
+ * whenever the profile has one (see the note in utils/businessCard.ts and
+ * backend/utils.bal). If a gate ever lands, this sentence changes with it.
  */
 const WHAT_IS_USED = `## What goes on the card
 
-Your **name**, **job title**, **department**, **work email**, **office phone**, **office address** and your **directory photo**. Your personal mobile number is included **only if you turned that on** in your profile.
+Your **name**, **job title**, **department**, **work email**, **office phone**, **office address** and your **directory photo**. Your **personal mobile number** is included whenever your profile has one.
 
 The card also carries a QR code holding the same details as a contact file, so anyone you show it to can scan and keep them.`;
 

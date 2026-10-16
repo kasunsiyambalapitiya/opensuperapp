@@ -15,7 +15,7 @@
 // under the License.
 import { BASE_URL, isIos } from "@/constants/Constants";
 import { presentApplePass } from "@/services/wallet/applePassPresenter";
-import { apiRequest } from "@/utils/requestHandler";
+import { apiRequest, getAccessToken } from "@/utils/requestHandler";
 import { File, Paths } from "expo-file-system";
 import { Alert, Linking } from "react-native";
 
@@ -39,6 +39,17 @@ const isSuccessStatus = (status: number | undefined): boolean =>
 const hasPassBytes = (data: unknown): boolean =>
   ((data as ArrayBuffer | undefined)?.byteLength ?? 0) > 0;
 
+// Both pass endpoints call the wallet service with the caller's own token, so
+// they are the only backend calls that need `x-user-assertion`: a gateway in
+// front of the backend overwrites `x-jwt-assertion` with a JWT it mints itself
+// and passes this header through untouched. It is set here rather than in the
+// shared request handler so the raw token is not copied onto every /micro-apps,
+// /user-info and notification poll as well — the chat agent sets it the same
+// way, per call.
+const userAssertionHeader = async (): Promise<Record<string, string>> => ({
+  "x-user-assertion": await getAccessToken(),
+});
+
 export const addToAppleWallet = async (
   enabled: boolean,
   onLogout: () => Promise<void>
@@ -49,7 +60,12 @@ export const addToAppleWallet = async (
 
   try {
     const response = await apiRequest(
-      { url: PKPASS_URL, method: "GET", responseType: "arraybuffer" },
+      {
+        url: PKPASS_URL,
+        method: "GET",
+        responseType: "arraybuffer",
+        headers: await userAssertionHeader(),
+      },
       onLogout
     );
 
@@ -92,7 +108,11 @@ export const addToGoogleWallet = async (
 
   try {
     const response = await apiRequest(
-      { url: GOOGLE_SAVE_URL_ENDPOINT, method: "GET" },
+      {
+        url: GOOGLE_SAVE_URL_ENDPOINT,
+        method: "GET",
+        headers: await userAssertionHeader(),
+      },
       onLogout
     );
 

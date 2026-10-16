@@ -53,7 +53,7 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
-const PASS_TYPE_ID = "pass.com.wso2.businesscard";
+const PASS_TYPE_ID = "pass.com.example.businesscard";
 const SERIAL = "3f0c1b2a-employee";
 
 /**
@@ -182,35 +182,24 @@ describe("passPresence (Android) — the app remembers what it did", () => {
     await expect(isPassInWallet("")).resolves.toBe(false);
   });
 
-  it("opens the Google Wallet app when the intent resolves", async () => {
+  // One call, to the https URL: Google Wallet claims wallet.google.com as an
+  // app link, so the installed app handles it and the web wallet catches
+  // everyone else. An `intent://` attempt before it would only ever reject,
+  // since RN's openURL hands the URI to ACTION_VIEW instead of parsing it.
+  it("opens the wallet through its app link, in a single attempt", async () => {
     mockOpenURL.mockResolvedValue(true);
     const { openPassInWallet } = loadAndroid();
 
     await expect(openPassInWallet(SERIAL)).resolves.toBe(true);
     expect(mockOpenURL).toHaveBeenCalledTimes(1);
-    expect(mockOpenURL.mock.calls[0][0]).toContain(
-      "com.google.android.apps.walletnfcrel",
-    );
+    expect(mockOpenURL.mock.calls[0][0]).toBe("https://wallet.google.com/");
   });
 
-  // Nothing resolves the intent when Google Wallet is not installed, and
-  // openURL throws rather than returning false, so the web wallet is the only
-  // thing between the employee and a button that does nothing.
-  it("falls back to the web wallet when the app is not installed", async () => {
-    mockOpenURL
-      .mockRejectedValueOnce(new Error("No Activity found to handle Intent"))
-      .mockResolvedValueOnce(true);
-    const { openPassInWallet } = loadAndroid();
-
-    await expect(openPassInWallet(SERIAL)).resolves.toBe(true);
-    expect(mockOpenURL).toHaveBeenCalledTimes(2);
-    expect(mockOpenURL.mock.calls[1][0]).toBe("https://wallet.google.com/");
-  });
-
-  it("gives up quietly when neither destination opens", async () => {
+  it("gives up quietly when nothing opens, without retrying", async () => {
     mockOpenURL.mockRejectedValue(new Error("nothing to open"));
     const { openPassInWallet } = loadAndroid();
 
     await expect(openPassInWallet(SERIAL)).resolves.toBe(false);
+    expect(mockOpenURL).toHaveBeenCalledTimes(1);
   });
 });

@@ -151,17 +151,36 @@ describe("useWalletPassPresence", () => {
     expect(probe.presence().inWallet).toBe(false);
   });
 
-  it("records a completed add and flips without a second round trip", async () => {
+  // The add's own answer is not evidence on iOS: the native module reports
+  // success as soon as the add-pass sheet is on screen, before the employee has
+  // tapped anything. Presence comes from asking afterwards.
+  it("re-asks the wallet after an add rather than assuming it landed", async () => {
     const probe = await renderPresence(true, SERIAL);
     expect(probe.presence().inWallet).toBe(false);
+
+    mockIsPassInWallet.mockResolvedValue(true);
+    await act(async () => {
+      await probe.presence().markAdded();
+    });
+
+    expect(mockMarkPassAdded).toHaveBeenCalledWith(SERIAL);
+    expect(mockIsPassInWallet).toHaveBeenCalledTimes(2);
+    expect(probe.presence().inWallet).toBe(true);
+  });
+
+  // This is also what a real add looks like when PassKit has not registered the
+  // pass by the time its sheet is dismissed. Leaving the add button up is the
+  // recoverable half of that tradeoff — the employee can tap it again, where an
+  // "Open in Wallet" button for a pass the wallet does not hold is a dead end.
+  it("leaves the add button up when the wallet does not confirm the add", async () => {
+    const probe = await renderPresence(true, SERIAL);
 
     await act(async () => {
       await probe.presence().markAdded();
     });
 
     expect(mockMarkPassAdded).toHaveBeenCalledWith(SERIAL);
-    expect(probe.presence().inWallet).toBe(true);
-    expect(mockIsPassInWallet).toHaveBeenCalledTimes(1);
+    expect(probe.presence().inWallet).toBe(false);
   });
 
   // Android's answer is only what this device last did, so an employee who
