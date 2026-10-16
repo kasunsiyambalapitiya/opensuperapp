@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import superapp_mobile_service.authorization;
+import superapp_mobile_service.database;
 import superapp_mobile_service.entity;
 import superapp_mobile_service.wallet;
 
@@ -139,4 +140,40 @@ public isolated function walletFailure(string operation, string userId, wallet:W
             message: string `The wallet service could not generate the ${operation}.`
         }
     };
+}
+
+# Records an issued wallet pass in the audit log.
+#
+# Called only once the wallet service has actually returned a pass, so a failed issuance never
+# shows up as a success. The write is best effort and a database failure is logged rather than
+# turned into a failed request: the pass is already built by the time this runs, and losing an
+# audit row is preferable to withholding a pass that was issued successfully.
+#
+# Callers dispatch this on its own strand (`start`) so a slow or unreachable database cannot add
+# its connection and query wait to a request whose pass is ready to send. The tradeoff is that
+# the row is lost if the process dies between the response going out and the insert landing;
+# the audit log is therefore a record of issuance on a best-effort basis, not a ledger that can
+# be relied on to account for every pass ever issued.
+#
+# + userInfo - Claims of the caller, extracted from the access token by the JWT interceptor
+# + action - Audit action to record
+# + description - Human readable description of what the user did
+# + platform - Wallet platform the pass was issued for
+isolated function recordWalletPassAudit(authorization:CustomJwtPayload userInfo, string action, string description,
+        string platform) {
+
+    database:AuditLogEntry entry = {
+        category: AUDIT_CATEGORY_BUSINESS_CARD,
+        action,
+        actorId: userInfo.userId,
+        actorEmail: userInfo.email,
+        description,
+        metadata: {platform}
+    };
+
+    database:ExecutionSuccessResult|error result = database:addAuditLog(entry);
+    if result is error {
+        log:printError("Failed to record the wallet pass issuance in the audit log!", result,
+                userId = userInfo.userId, action = action);
+    }
 }

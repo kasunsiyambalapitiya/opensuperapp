@@ -14,16 +14,17 @@
 // specific language governing permissions and limitations
 // under the License.
 import { addToAppleWallet } from "@/services/walletPassService";
-import { apiRequest } from "@/utils/requestHandler";
+import { apiRequest, getAccessToken } from "@/utils/requestHandler";
 import * as Sharing from "expo-sharing";
 import { Alert } from "react-native";
 
 jest.mock("@/utils/requestHandler", () => ({
   apiRequest: jest.fn(),
+  getAccessToken: jest.fn(),
 }));
 
-// The endpoint URLs are built when the service loads, so pin the base URL
-// rather than depend on the environment running the tests.
+// The endpoint URLs are built when the service loads, so the base URL is pinned
+// here rather than depending on the environment running the tests.
 jest.mock("@/constants/Constants", () => ({
   __esModule: true,
   ...jest.requireActual("@/constants/Constants"),
@@ -79,6 +80,11 @@ jest.mock("expo-file-system", () => {
 
 const onLogout = jest.fn().mockResolvedValue(undefined);
 
+// The two business-card endpoints are the only backend calls that pass the
+// caller's raw token on in `x-user-assertion`, so the token is pinned here to
+// assert the header is set per call rather than by the shared request handler.
+const ACCESS_TOKEN = "header.payload.signature";
+
 const okResponse = () => {
   (apiRequest as jest.Mock).mockResolvedValue({
     status: 200,
@@ -89,6 +95,7 @@ const okResponse = () => {
 describe("addToAppleWallet — native add sheet", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getAccessToken as jest.Mock).mockResolvedValue(ACCESS_TOKEN);
     (Sharing.isAvailableAsync as jest.Mock).mockResolvedValue(true);
     (Sharing.shareAsync as jest.Mock).mockResolvedValue(undefined);
   });
