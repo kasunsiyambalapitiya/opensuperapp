@@ -62,6 +62,7 @@ jest.mock("react-native", () => ({
 jest.mock("@/services/userConfigService", () => ({
   UpdateUserConfiguration: jest.fn(async (appId: string, status: string) => {
     mockCallOrder.push(`config:${status}`);
+    return true;
   }),
 }));
 
@@ -87,6 +88,8 @@ jest.mock("expo-file-system", () => {
 // Imported after the mocks so the module factories above see initialised
 // helpers when the modules are first required.
 /* eslint-disable import/first */
+import { Alert } from "react-native";
+
 import { NOT_DOWNLOADED } from "@/constants/Constants";
 import { removeMicroApp } from "@/services/appStoreService";
 import { UpdateUserConfiguration } from "@/services/userConfigService";
@@ -120,6 +123,30 @@ describe("removeMicroApp", () => {
       "dispatch:updateAppStatus",
       "dispatch:removeRemoving",
     ]);
+  });
+
+  // `UpdateUserConfiguration` reports a rejected write by returning false and
+  // rolling the list back, so the app is still entitled. Deleting the files
+  // anyway is the reinstall of issue #87 again, now on any server failure.
+  it("keeps the files and the status when the user config write is refused", async () => {
+    (UpdateUserConfiguration as jest.Mock).mockResolvedValueOnce(false);
+    const dispatch = jest.fn((action: { type: string }) => {
+      mockCallOrder.push(`dispatch:${action.type}`);
+      return action;
+    });
+
+    await removeMicroApp(dispatch as never, "app-1", logout);
+
+    expect(mockDeleteDirectory).not.toHaveBeenCalled();
+    expect(mockDeleteFile).not.toHaveBeenCalled();
+    expect(mockCallOrder).toEqual([
+      "dispatch:addRemoving",
+      "dispatch:removeRemoving",
+    ]);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "Error",
+      "Failed to remove the app."
+    );
   });
 
   it("clears the removing flag even when the removal fails", async () => {

@@ -87,7 +87,14 @@ export const downloadMicroApp = async (
     // The user config list has to gain the app before its status flips: the My
     // Apps screen reconciles what is on disk against that list, and would
     // uninstall the app again if it saw the new status first.
-    await UpdateUserConfiguration(appId, DOWNLOADED, onLogout); // Update user configurations
+    // A rejected write reports itself by returning false, not by throwing, and
+    // has already rolled the list back — so flipping the status here would
+    // leave an installed app the sync effect immediately uninstalls.
+    const entitled = await UpdateUserConfiguration(appId, DOWNLOADED, onLogout); // Update user configurations
+    if (!entitled) {
+      throw new Error("Failed to update user configuration.");
+    }
+
     dispatch(
       updateAppStatus({
         appId,
@@ -258,7 +265,17 @@ export const removeMicroApp = async (
     // Drop the entitlement before flipping the status. The status dispatch
     // re-triggers the My Apps sync effect, which would otherwise still see this
     // app as entitled but missing from disk and immediately re-download it.
-    await UpdateUserConfiguration(appId, NOT_DOWNLOADED, onLogout);
+    // A rejected write returns false rather than throwing and rolls the list
+    // back, so the app stays entitled. Deleting the files anyway is what makes
+    // the sync effect download it again.
+    const unentitled = await UpdateUserConfiguration(
+      appId,
+      NOT_DOWNLOADED,
+      onLogout
+    );
+    if (!unentitled) {
+      throw new Error("Failed to update user configuration.");
+    }
 
     if (extractedDir.exists) {
       extractedDir.delete();
