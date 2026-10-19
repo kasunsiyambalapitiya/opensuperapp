@@ -114,17 +114,17 @@ beforeEach(() => {
 });
 
 describe("useBusinessCardActions", () => {
-  // `saving` only disables Continue on the render it schedules, so taps that
-  // queue while the JS thread is busy all land on an enabled button. Two of
-  // them through the save would be two passes issued and two audit rows.
-  it("ignores a second Continue while the first save is still running", async () => {
+  // `saving` only disables the wallet badge on the render it schedules, so
+  // taps that queue while the JS thread is busy all land on an enabled badge.
+  // Two of them through the save would be two passes issued and two audit rows.
+  it("ignores a second tap while the first save is still running", async () => {
     const settle = pendingSave();
     const actions = await renderActions();
-    const accept = actions().acceptDisclaimer;
+    const save = actions().savePass;
 
     let taps: Promise<void>[] = [];
     await act(async () => {
-      taps = [accept(), accept()];
+      taps = [save(), save()];
     });
 
     expect(mockSaveBusinessCardPass).toHaveBeenCalledTimes(1);
@@ -140,29 +140,45 @@ describe("useBusinessCardActions", () => {
   });
 
   // The guard is about the in-flight call, not a one-shot: a save that failed
-  // leaves the consent sheet up precisely so it can be retried.
+  // has to stay retryable, and the wallet button is the only thing standing
+  // between the employee and the retry now that nothing gates it.
   it("lets the employee retry once the save has settled", async () => {
     mockSaveBusinessCardPass.mockResolvedValue(false);
     const actions = await renderActions();
 
-    // Opened the way the employee opens it, so the assertion below is about the
-    // sheet surviving the failed save rather than about it never having shown.
     await act(async () => {
-      actions().savePass();
-    });
-    expect(actions().disclaimerVisible).toBe(true);
-
-    await act(async () => {
-      await actions().acceptDisclaimer();
+      await actions().savePass();
     });
     await act(async () => {
-      await actions().acceptDisclaimer();
+      await actions().savePass();
     });
 
     expect(mockSaveBusinessCardPass).toHaveBeenCalledTimes(2);
     expect(actions().saving).toBe(false);
-    // The retry is only reachable from the consent sheet, so the sheet having
-    // stayed up is the whole point rather than an incidental detail.
+  });
+
+  // The disclaimer is a document the employee opens from the action row, not a
+  // step in the save. Reading it is neither required before a save nor changed
+  // by one, so a save must leave it exactly as it found it.
+  it("neither opens nor closes the disclaimer when a pass is saved", async () => {
+    const actions = await renderActions();
+
+    expect(actions().disclaimerVisible).toBe(false);
+
+    await act(async () => {
+      await actions().savePass();
+    });
+
+    expect(mockSaveBusinessCardPass).toHaveBeenCalledTimes(1);
+    expect(actions().disclaimerVisible).toBe(false);
+
+    act(() => actions().showDisclaimer());
+    expect(actions().disclaimerVisible).toBe(true);
+
+    await act(async () => {
+      await actions().savePass();
+    });
+
     expect(actions().disclaimerVisible).toBe(true);
   });
 });

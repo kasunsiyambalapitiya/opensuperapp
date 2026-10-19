@@ -47,6 +47,7 @@ const IOS_URL_SCHEME = process.env.IOS_URL_SCHEME ?? "example.scheme";
 const ENABLE_FIREBASE = process.env.EXPO_PUBLIC_ENABLE_FIREBASE ?? FALSE;
 const ADD_ANDROID_NOTIFICATION_ICON =
   process.env.EXPO_PUBLIC_ADD_ANDROID_NOTIFICATION_ICON ?? FALSE;
+const APPLE_PASS_TYPE_ID = process.env.EXPO_PUBLIC_APPLE_PASS_TYPE_ID ?? "";
 const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? ""; // Comment this if EAS is not used
 const UPDATES_CHANNEL = process.env.EXPO_PUBLIC_UPDATES_CHANNEL ?? ""; // Comment this if EAS is not used
 
@@ -98,6 +99,25 @@ let config: ExpoConfig = {
     },
     entitlements: {
       "aps-environment": profile === PRODUCTION ? PRODUCTION : DEVELOPMENT,
+      // PKPassLibrary reports only passes whose type identifier is listed
+      // here. Without it the app can hand the business card to Wallet but can
+      // never see that Wallet has it, so hasPass and viewInWallet both answer
+      // false and the "Open in Apple Wallet" button does nothing.
+      //
+      // Scoped to the one pass type the app actually asks about rather than
+      // the team-prefix wildcard Xcode's Wallet capability generates by
+      // default: services/wallet/passPresence.ios.ts only ever passes
+      // APPLE_PASS_TYPE_ID to hasPass and viewInWallet, so the wildcard would
+      // buy visibility of every pass type registered under the team for no
+      // functional gain. No team id is hardcoded either way — the value comes
+      // from the environment. Set only when a pass type is configured: the
+      // entitlement has to be on the provisioning profile too, and signing
+      // fails on a profile without it.
+      ...(APPLE_PASS_TYPE_ID
+        ? {
+            "com.apple.developer.pass-type-identifiers": [APPLE_PASS_TYPE_ID],
+          }
+        : {}),
     },
     icon: {
       dark: "./assets/images/ios-dark.png",
