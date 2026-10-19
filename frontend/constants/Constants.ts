@@ -53,6 +53,9 @@ export const ENABLE_FIREBASE = process.env.EXPO_PUBLIC_ENABLE_FIREBASE === TRUE;
 // Build-time switch; the per-OS remote config flags handle the runtime rollout.
 export const ENABLE_WALLET_PASS =
   process.env.EXPO_PUBLIC_ENABLE_WALLET_PASS === TRUE;
+// Gates dev-only features
+export const SUPER_APP_DEVELOPER_GROUP =
+  process.env.EXPO_PUBLIC_SUPER_APP_DEVELOPER_GROUP ?? "";
 
 // Apple's pass type identifier, which together with the serial number is
 // Wallet's identity key for a pass. The app needs it only to ask iOS whether

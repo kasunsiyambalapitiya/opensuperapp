@@ -28,7 +28,10 @@
     "*.{js,jsx,ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "moduleNameMapper": {
+      "^immer$": "<rootDir>/node_modules/immer/dist/cjs/index.js"
+    }
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
