@@ -40,7 +40,7 @@ import {
   markRefreshInterrupted,
   readInterruptedRefresh,
 } from "@/utils/rotationGuard";
-import { waitForOnline } from "@/utils/connectivity";
+import { startedBeforeReconnect, waitForOnline } from "@/utils/connectivity";
 import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { jwtDecode } from "jwt-decode";
 
@@ -207,8 +207,12 @@ const waitForOnlineWithinBound = async (): Promise<void> => {
   }
 };
 
-// Whether a refresh that ran out of attempts ends the session, and why.
-const handleRefreshFailure = async (err: unknown): Promise<null> => {
+// Whether a refresh that ran out of attempts ends the session, and why. `lastAttemptAt` is
+// when the final attempt went out.
+const handleRefreshFailure = async (
+  err: unknown,
+  lastAttemptAt: number
+): Promise<null> => {
   const kind =
     err instanceof AuthError ? err.kind : classifyAuthError({ error: err });
   console.error(
@@ -217,8 +221,12 @@ const handleRefreshFailure = async (err: unknown): Promise<null> => {
   );
 
   if (kind !== "invalid_grant") {
-    // Said only once the retries are spent, so a single blip does not flicker the banner.
-    if (kind === "network" || kind === "timeout") {
+    // Said only once the retries are spent, so a single blip does not flicker the banner,
+    // and not for an attempt sent before the latest reconnect, which proves nothing now.
+    if (
+      (kind === "network" || kind === "timeout") &&
+      !startedBeforeReconnect(lastAttemptAt)
+    ) {
       reachabilityEmitter.emit(Event.AuthReachability, false);
     }
     authEmitter.emit(Event.AuthSession, { status: "degraded" });
@@ -255,16 +263,20 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
 
       authEmitter.emit(Event.AuthSession, { status: "refreshing" });
       let data: IssuedTokens;
+      let lastAttemptAt = Date.now();
       try {
         data = await retryWithBackoff(
-          () => postRefreshToken(storedData.refreshToken),
+          () => {
+            lastAttemptAt = Date.now();
+            return postRefreshToken(storedData.refreshToken);
+          },
           {
             shouldRetry: shouldRetryRefresh,
             waitUntilOnline: waitForOnlineWithinBound,
           }
         );
       } catch (err) {
-        return await handleRefreshFailure(err);
+        return await handleRefreshFailure(err, lastAttemptAt);
       }
 
       const updatedAuthData: AuthData = {

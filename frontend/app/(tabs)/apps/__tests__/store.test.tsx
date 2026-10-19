@@ -14,8 +14,13 @@
 // specific language governing permissions and limitations
 // under the License.
 jest.mock("@react-native-async-storage/async-storage", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );
+jest.mock("@react-navigation/bottom-tabs", () => ({
+  ...jest.requireActual("@react-navigation/bottom-tabs"),
+  useBottomTabBarHeight: () => 0,
+}));
 jest.mock("@/services/appStoreService", () => ({
   loadMicroAppDetails: jest.fn(),
   downloadMicroApp: jest.fn(),
@@ -30,7 +35,10 @@ jest.mock("@expo/vector-icons", () => ({
 }));
 // See index.test.tsx: the "react-native" export condition of react-redux is an
 // ESM build this project's Jest transform can't parse.
-jest.mock("react-redux", () => require("react-redux/alternate-renderers"));
+jest.mock("react-redux", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("react-redux/alternate-renderers")
+);
 
 import { loadMicroAppDetails } from "@/services/appStoreService";
 import { SessionStatus } from "@/types/auth.types";
@@ -132,7 +140,16 @@ describe("Store loading", () => {
     expect(list.props.data).toEqual([cachedApp]);
   });
 
-  it("does not load apps when signed out", async () => {
+  it("loads when signed in", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("authenticated", "some-token"));
+
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load for an ended session, whatever token is left in Redux", async () => {
+    await renderStore(buildStore("expired", "stale-token"));
     await renderStore(buildStore("signedOut", null));
 
     expect(mockLoadMicroAppDetails).not.toHaveBeenCalled();

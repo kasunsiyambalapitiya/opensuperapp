@@ -14,6 +14,9 @@
 // specific language governing permissions and limitations
 // under the License.
 import NotFound from "@/components/NotFound";
+import OfflineToast, {
+  OFFLINE_TOAST_ANIMATION_MS,
+} from "@/components/OfflineToast";
 import TextPromptDialog from "@/components/TextPromptDialog";
 import { Colors } from "@/constants/Colors";
 import {
@@ -77,6 +80,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Keyboard,
   StyleSheet,
   Text,
@@ -95,6 +99,9 @@ WebBrowser.maybeCompleteAuthSession();
 type NativeLogLevel = "info" | "warn" | "error";
 
 const TOKEN_UNAVAILABLE = "Could not get a token for this app";
+
+// The offline toast is shown on opening, then gets out of the micro app's way.
+const OFFLINE_TOAST_AUTO_HIDE_MS = 4000;
 
 const MicroApp = () => {
   const {
@@ -128,6 +135,26 @@ const MicroApp = () => {
   const insets = useSafeAreaInsets();
   const shouldShowHeader: boolean = displayMode !== FULL_SCREEN_VIEWING_MODE;
   const { width, height } = useWindowDimensions();
+  const [offlineToastVisible, setOfflineToastVisible] = useState(false);
+  const [offlineToastHeight, setOfflineToastHeight] = useState(0);
+  const tokenErrorLift = useRef(new Animated.Value(0)).current;
+
+  // The sign-in error and the offline toast are both pinned to the bottom; the error moves
+  // up out of the toast's way, and back down once the toast has gone.
+  useEffect(() => {
+    // The toast already covers the safe area the error sits above.
+    const lift = offlineToastVisible
+      ? Math.max(0, offlineToastHeight - insets.bottom)
+      : 0;
+    const animation = Animated.timing(tokenErrorLift, {
+      toValue: -lift,
+      // The toast's own slide, so the two move together.
+      duration: OFFLINE_TOAST_ANIMATION_MS,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [offlineToastVisible, offlineToastHeight, insets.bottom, tokenErrorLift]);
 
   // Every token it asks for from here on would fail; the sign-in prompt takes over.
   useLeaveWhenSessionEnds(() => router.back());
@@ -1051,8 +1078,14 @@ const MicroApp = () => {
           {renderWebView(isDeveloper ? webUri : webViewUri)}
         </View>
         {showTokenError && (
-          <View
-            style={[styles.tokenError, { bottom: insets.bottom + 16 }]}
+          <Animated.View
+            style={[
+              styles.tokenError,
+              {
+                bottom: insets.bottom + 16,
+                transform: [{ translateY: tokenErrorLift }],
+              },
+            ]}
             accessibilityRole="alert"
             accessibilityLiveRegion="polite"
           >
@@ -1076,8 +1109,15 @@ const MicroApp = () => {
                 <Text style={styles.retryText}>Try again</Text>
               )}
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         )}
+        <OfflineToast
+          bottom={0}
+          bottomInset={insets.bottom}
+          autoHideMs={OFFLINE_TOAST_AUTO_HIDE_MS}
+          onHeight={setOfflineToastHeight}
+          onVisibleChange={setOfflineToastVisible}
+        />
       </View>
       <TextPromptDialog
         visible={appUrlDialogVisible}

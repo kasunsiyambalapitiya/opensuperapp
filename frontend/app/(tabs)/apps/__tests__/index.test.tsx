@@ -153,3 +153,21 @@ describe("HomeScreen auth gate", () => {
     expectSignInGate(await renderHomeScreen("expired", "stale-token"));
   });
 });
+
+describe("HomeScreen initial load", () => {
+  const { loadMicroAppDetails } = jest.requireMock(
+    "@/services/appStoreService"
+  ) as { loadMicroAppDetails: jest.Mock };
+
+  beforeEach(() => loadMicroAppDetails.mockClear());
+
+  it("loads the apps for a session restored offline, which has no userId in Redux", async () => {
+    await renderHomeScreen("degraded", null);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load the apps once the session has ended", async () => {
+    await renderHomeScreen("expired", null);
+    expect(loadMicroAppDetails).not.toHaveBeenCalled();
+  });
+});

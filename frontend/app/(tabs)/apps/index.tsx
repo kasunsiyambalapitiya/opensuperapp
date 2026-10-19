@@ -61,7 +61,6 @@ export default function HomeScreen() {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const userId = useSelector((state: RootState) => state.auth.userId);
   const isSignedIn = useSelector(selectIsSignedIn);
   const downloading = useSelector((state: RootState) => state.apps.downloading);
   const removing = useSelector((state: RootState) => state.apps.removing);
@@ -122,7 +121,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const checkForUpdates = async () => {
-        if (isCheckingUpdates.current || !userId || !isForceUpdate) {
+        if (isCheckingUpdates.current || !isSignedIn || !isForceUpdate) {
           return;
         }
 
@@ -165,13 +164,13 @@ export default function HomeScreen() {
       return () => {
         isCheckingUpdates.current = false;
       };
-    }, [dispatch, userId, isForceUpdate, updateCheckIntervalMs])
+    }, [dispatch, isSignedIn, isForceUpdate, updateCheckIntervalMs])
   );
 
   // Load micro apps and user configurations if they haven't been initialized yet
   useEffect(() => {
     const initializeApp = async () => {
-      if (!userId) return; // Prevent loading micro apps into UI when logged out
+      if (!isSignedIn) return; // Prevent loading micro apps into UI when logged out
 
       try {
         if (!apps || apps.length === 0) {
@@ -198,7 +197,7 @@ export default function HomeScreen() {
     };
 
     initializeApp();
-  }, [userId]);
+  }, [isSignedIn]);
 
   // Reconcile what is on disk against the user's app list
   useEffect(() => {
@@ -351,6 +350,7 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={{
             minHeight: windowHeight - 3 * tabBarHeight,
+            paddingBottom: tabBarHeight,
           }}
           showsVerticalScrollIndicator={false}
           onScrollBeginDrag={Keyboard.dismiss}

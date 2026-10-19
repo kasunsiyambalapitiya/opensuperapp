@@ -13,8 +13,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import { API_REQUEST_TIMEOUT_MS } from "@/constants/Constants";
 import { Event } from "@/constants/enums/Event";
 import { refreshAccessToken } from "@/services/tokenRefresh";
+import { startedBeforeReconnect } from "@/utils/connectivity";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { loadAuthDataFromSecureStore } from "@/utils/authTokenStore";
 import { isTokenExpired } from "@/utils/tokenExpiry";
@@ -37,6 +39,10 @@ export const apiRequest = async (config: AxiosRequestConfig) => {
     }
     accessToken = newAuthData.accessToken;
   }
+
+  // A timeout rejects with no `response`, so it reads below as unreachable, never as a
+  // verdict on the session.
+  config.timeout = config.timeout ?? API_REQUEST_TIMEOUT_MS;
 
   // Set Authorization Header
   //
@@ -62,14 +68,15 @@ export const apiRequest = async (config: AxiosRequestConfig) => {
     config.headers["x-jwt-assertion"] = accessToken;
   }
 
+  const startedAt = Date.now();
   try {
     const response = await axios(config); // Make the API request
     reachabilityEmitter.emit(Event.AuthReachability, true);
     return response;
   } catch (error: any) {
     // No `response` means the request never reached the backend, as opposed to reaching
-    // it and being refused.
-    if (!error.response) {
+    // it and being refused. One sent before the latest reconnect proves nothing about now.
+    if (!error.response && !startedBeforeReconnect(startedAt)) {
       reachabilityEmitter.emit(Event.AuthReachability, false);
     }
 

@@ -30,6 +30,7 @@ import {
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -70,7 +71,8 @@ const Store = () => {
   const activeDownloadsRef = useRef(new Set<string>());
 
   const colorScheme = useColorScheme();
-  const styles = createStyles(colorScheme ?? "light");
+  const tabBarHeight = useBottomTabBarHeight();
+  const styles = createStyles(colorScheme ?? "light", tabBarHeight);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -286,7 +288,7 @@ const Store = () => {
   );
 };
 
-const createStyles = (colorScheme: "light" | "dark") =>
+const createStyles = (colorScheme: "light" | "dark", tabBarHeight: number) =>
   StyleSheet.create({
     searchContainer: {
       flexDirection: "row",
@@ -323,7 +325,7 @@ const createStyles = (colorScheme: "light" | "dark") =>
       fontSize: 16,
     },
     listContent: {
-      paddingBottom: 80,
+      paddingBottom: tabBarHeight,
     },
     container: {
       flex: 1,

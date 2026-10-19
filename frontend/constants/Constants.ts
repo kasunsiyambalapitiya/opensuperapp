@@ -26,6 +26,9 @@ export const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI ?? "";
 export const TOKEN_URL = process.env.EXPO_PUBLIC_TOKEN_URL ?? "";
 export const LOGOUT_URL = process.env.EXPO_PUBLIC_LOGOUT_URL ?? "";
 export const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL ?? "";
+// A half-dead connection can hold a request open until the OS gives up, which on mobile
+// can be minutes. Token refresh has its own, shorter bound (tokenRefresh.ts).
+export const API_REQUEST_TIMEOUT_MS = 30000;
 export const MICRO_APP_STORAGE_DIR =
   process.env.EXPO_PUBLIC_MICRO_APP_STORAGE_DIR ?? "";
 export const ARTICLE_BASE_URL = process.env.EXPO_PUBLIC_ARTICLE_BASE_URL ?? "";
