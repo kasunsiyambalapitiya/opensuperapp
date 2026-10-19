@@ -29,6 +29,11 @@ jest.mock("@/context/slices/deviceSlice", () => ({
 const mockDispatch = jest.fn();
 jest.mock("react-redux", () => ({ useDispatch: () => mockDispatch }));
 
+const mockPurge = jest.fn().mockResolvedValue(undefined);
+jest.mock("@/context/store", () => ({
+  persistor: { purge: (...args: unknown[]) => mockPurge(...args) },
+}));
+
 import { Event } from "@/constants/enums/Event";
 import { authEmitter } from "@/utils/eventEmitter";
 import { useAuthLogoutListener } from "@/hooks/useAuthLogoutListener";
@@ -43,6 +48,7 @@ function TestHost() {
 describe("useAuthLogoutListener", () => {
   afterEach(() => {
     mockDispatch.mockClear();
+    mockPurge.mockClear();
     authEmitter.removeAllListeners();
   });
 
@@ -52,6 +58,22 @@ describe("useAuthLogoutListener", () => {
     });
 
     expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockPurge).not.toHaveBeenCalled();
+  });
+
+  it("purges persisted state before resetting Redux when Event.AuthLoggedOut fires", () => {
+    act(() => {
+      create(createElement(TestHost));
+    });
+
+    act(() => {
+      authEmitter.emit(Event.AuthLoggedOut, undefined);
+    });
+
+    expect(mockPurge).toHaveBeenCalledTimes(1);
+    expect(mockPurge.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDispatch.mock.invocationCallOrder[0]
+    );
   });
 
   it("dispatches resetAll, clearDeviceState, and clearLastSentFcmToken in order when Event.AuthLoggedOut fires", () => {
@@ -88,5 +110,6 @@ describe("useAuthLogoutListener", () => {
     });
 
     expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockPurge).not.toHaveBeenCalled();
   });
 });

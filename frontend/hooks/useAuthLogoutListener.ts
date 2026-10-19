@@ -16,7 +16,7 @@
 import { Event } from "@/constants/enums/Event";
 import { resetAll } from "@/context/slices/authSlice";
 import { clearDeviceState, clearLastSentFcmToken } from "@/context/slices/deviceSlice";
-import { AppDispatch } from "@/context/store";
+import { AppDispatch, persistor } from "@/context/store";
 import { authEmitter } from "@/utils/eventEmitter";
 import { useEffect } from "react";
 import { useDispatch } from "react-redux";
@@ -33,6 +33,12 @@ export const useAuthLogoutListener = () => {
     const unsubscribe = authEmitter.on(Event.AuthLoggedOut, () => {
       // Not performLogout(): this listener runs *after* logout() has already
       // cleared local state, so re-triggering it here would be a re-entrant loop.
+      // resetAll() drops the persisted slices' _persist key, which stops
+      // redux-persist from writing, so purge storage too or the old user's
+      // apps and profile come back on the next cold start.
+      persistor
+        .purge()
+        .catch((error) => console.error("Failed to purge persisted state:", error));
       dispatch(resetAll());
       dispatch(clearDeviceState());
       dispatch(clearLastSentFcmToken());
