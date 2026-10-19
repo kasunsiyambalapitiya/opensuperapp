@@ -261,6 +261,109 @@ describe("retryWithBackoff", () => {
     expect(fn).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(1);
   });
+
+  describe("with waitUntilOnline", () => {
+    // A connectivity gate the test opens by hand.
+    const makeGate = () => {
+      let open: () => void = () => {};
+      const waitUntilOnline = jest.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            open = resolve;
+          })
+      );
+      return { waitUntilOnline, open: () => open() };
+    };
+
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    it("makes no attempt until the device is online", async () => {
+      const { sleep } = makeSleep();
+      const { waitUntilOnline, open } = makeGate();
+      const fn = jest.fn(async () => "ok");
+
+      const result = retryWithBackoff(fn, {
+        sleep,
+        random: () => 0,
+        waitUntilOnline,
+      });
+      await flush();
+      expect(fn).not.toHaveBeenCalled();
+
+      open();
+      await expect(result).resolves.toBe("ok");
+      expect(fn).toHaveBeenCalledWith(1);
+    });
+
+    it("does not spend an attempt while offline, however long that lasts", async () => {
+      const { sleep } = makeSleep();
+      const { waitUntilOnline, open } = makeGate();
+      const fn = jest.fn(async (attempt: number) => {
+        if (attempt < 3) throw new AuthError("network", "dropped");
+        return attempt;
+      });
+
+      const result = retryWithBackoff(fn, {
+        sleep,
+        random: () => 0,
+        waitUntilOnline,
+      });
+
+      // Each gate is one offline stretch: the attempt count only moves once it opens.
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await flush();
+        expect(fn).toHaveBeenCalledTimes(attempt - 1);
+        open();
+      }
+
+      await expect(result).resolves.toBe(3);
+      expect(waitUntilOnline).toHaveBeenCalledTimes(3);
+      expect(fn.mock.calls).toEqual([[1], [2], [3]]);
+    });
+
+    it("gives up with the wait's own error, without another attempt", async () => {
+      const { sleep } = makeSleep();
+      const gaveUp = new Error("deadline");
+      const waitUntilOnline = jest
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(gaveUp);
+      const fn = jest.fn(async () => {
+        throw new AuthError("network", "dropped");
+      });
+      const shouldRetry = jest.fn(() => true);
+
+      await expect(
+        retryWithBackoff(fn, {
+          sleep,
+          random: () => 0,
+          waitUntilOnline,
+          shouldRetry,
+        })
+      ).rejects.toBe(gaveUp);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(shouldRetry).toHaveBeenCalledTimes(1);
+    });
+
+    it("still never retries an invalid_grant", async () => {
+      const { sleep } = makeSleep();
+      const waitUntilOnline = jest.fn(async () => {});
+      const dead = new AuthError("invalid_grant", "refresh token is dead", {
+        status: 400,
+        oauthError: "invalid_grant",
+      });
+      const fn = jest.fn(async () => {
+        throw dead;
+      });
+
+      await expect(
+        retryWithBackoff(fn, { sleep, random: () => 0, waitUntilOnline })
+      ).rejects.toBe(dead);
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(waitUntilOnline).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("AuthError", () => {

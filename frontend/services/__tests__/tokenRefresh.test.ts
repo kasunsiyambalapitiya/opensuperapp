@@ -65,6 +65,13 @@ jest.mock("@/utils/rotationGuard", () => ({
     mockClearInterruptedRefresh(...args),
 }));
 
+// The NetInfo mock never reports a state, so the real waitForOnline would wait forever.
+// Online unless a test says otherwise.
+const mockWaitForOnline = jest.fn();
+jest.mock("@/utils/connectivity", () => ({
+  waitForOnline: (...args: unknown[]) => mockWaitForOnline(...args),
+}));
+
 const mockJwtDecode = jest.fn();
 jest.mock("jwt-decode", () => ({
   jwtDecode: (...args: unknown[]) => mockJwtDecode(...args),
@@ -175,6 +182,7 @@ beforeEach(() => {
   mockReadInterruptedRefresh.mockReset().mockResolvedValue(null);
   mockMarkRefreshInterrupted.mockReset().mockResolvedValue(undefined);
   mockClearInterruptedRefresh.mockReset().mockResolvedValue(undefined);
+  mockWaitForOnline.mockReset().mockResolvedValue(undefined);
   mockJwtDecode.mockReset().mockImplementation(() => ({
     email: "user@example.com",
     userid: "user-1",
@@ -423,6 +431,94 @@ describe("refreshAccessToken", () => {
     advancePastAlertCooldown();
     await refreshAccessToken(jest.fn().mockResolvedValue(undefined));
     expect(alertMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("while the device is offline", () => {
+  // Mirrors the bound in tokenRefresh.ts. Every screen that wants a token waits behind a
+  // refresh in flight, so it cannot wait for a reconnect indefinitely.
+  const OFFLINE_WAIT_TIMEOUT_MS = 30000;
+
+  it("holds the request until the device is back online, then sends it", async () => {
+    let reconnect: () => void = () => {};
+    mockWaitForOnline.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        reconnect = resolve;
+      })
+    );
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const refreshing = refreshAccessToken(onLogout);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    reconnect();
+
+    await expect(refreshing).resolves.toMatchObject({
+      accessToken: "new-access-token",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not spend its attempts while offline", async () => {
+    // Every attempt drops; the device is offline between each. Three attempts
+    // still means three requests, not three failed waits.
+    mockFetch.mockRejectedValue(new TypeError("Network request failed"));
+
+    await refreshAccessToken(onLogout);
+
+    expect(mockWaitForOnline).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(onLogout).not.toHaveBeenCalled();
+  });
+
+  it("stops waiting after a bound, keeps the session, and sends nothing", async () => {
+    mockWaitForOnline.mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => {
+            const aborted = new Error("Stopped waiting for a connection");
+            aborted.name = "AbortError";
+            reject(aborted);
+          });
+        })
+    );
+    const seen: boolean[] = [];
+    const off = reachabilityEmitter.on(Event.AuthReachability, (v) =>
+      seen.push(v as boolean)
+    );
+
+    jest.useFakeTimers();
+    try {
+      const refreshing = refreshAccessToken(onLogout);
+      await jest.advanceTimersByTimeAsync(OFFLINE_WAIT_TIMEOUT_MS - 1);
+      expect(mockWaitForOnline.mock.calls[0][0].aborted).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(refreshing).resolves.toBeNull();
+    } finally {
+      jest.useRealTimers();
+      off();
+    }
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Nothing was sent, so nothing can have been rotated away.
+    expect(mockMarkRefreshInterrupted).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(alertMock).not.toHaveBeenCalled();
+    expect(seen).toEqual([false]);
+  });
+
+  it("lets the next caller start a fresh refresh after giving up", async () => {
+    mockWaitForOnline.mockRejectedValueOnce(
+      Object.assign(new Error("Stopped waiting"), { name: "AbortError" })
+    );
+    await expect(refreshAccessToken(onLogout)).resolves.toBeNull();
+
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+    await expect(refreshAccessToken(onLogout)).resolves.toMatchObject({
+      accessToken: "new-access-token",
+    });
   });
 });
 
