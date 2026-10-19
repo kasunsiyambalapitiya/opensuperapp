@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { CLIENT_ID, SUCCESS, TOKEN_URL } from "@/constants/Constants";
+import { Event } from "@/constants/enums/Event";
 import {
   updateExchangedIdToken,
   updateExchangedToken,
@@ -28,10 +29,10 @@ import {
   saveAuthDataToSecureStore,
   SecureAuthData,
 } from "@/utils/authTokenStore";
+import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { isTokenExpired } from "@/utils/tokenExpiry";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
-import { Alert } from "react-native";
 import { AuthorizeResult } from "react-native-app-auth";
 
 // Re-exported so the many existing importers of these shapes do not have to move.
@@ -184,6 +185,9 @@ export const tokenExchange = async (
           }
         );
 
+        // Any response at all proves the backend is reachable.
+        reachabilityEmitter.emit(Event.AuthReachability, true);
+
         if (response.status === 200) return response.data;
 
         if (response.status === 401) {
@@ -205,21 +209,12 @@ export const tokenExchange = async (
         }
       } catch (error: any) {
         console.error("Fetch error:", error);
-
-        if (
-          error.message === "Network Error" ||
-          (error.isAxiosError && !error.response)
-        ) {
-          Alert.alert(
-            "Network Error",
-            "Please check your internet connection and try again."
-          );
-        } else {
-          Alert.alert(
-            "Error",
-            "Authorization failed. Please restart the app and try again. If the issue persists, log in again and try once more."
-          );
-        }
+        // No Alert: the micro-app screen, the only caller, says so and offers "Try again".
+        reachabilityEmitter.emit(
+          Event.AuthReachability,
+          Boolean(error.response)
+        );
+        return null;
       }
     };
 

@@ -26,12 +26,14 @@ import { ScreenPaths } from "@/constants/ScreenPaths";
 import { RootState } from "@/context/store";
 import { useChat } from "@/hooks/useChat";
 import { useChatSessions } from "@/hooks/useChatSessions";
+import { useLeaveWhenSessionEnds } from "@/hooks/useLeaveWhenSessionEnds";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import { resolveChatUserId } from "@/utils/resolveChatUserId";
 import { ChatMessage } from "@/types/chat.types";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
+import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -103,6 +105,9 @@ export default function ChatScreen(): JSX.Element {
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
 
   useTrackActiveScreen(ScreenPaths.CHAT);
+
+  // The tab is hidden once signed out, and there is no Sign In fallback here.
+  useLeaveWhenSessionEnds(() => router.navigate(ScreenPaths.FEED));
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });

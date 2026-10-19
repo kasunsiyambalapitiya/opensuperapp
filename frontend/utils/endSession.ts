@@ -21,7 +21,7 @@ import {
   AuthState,
   resetAll,
   selectHasSessionEnded,
-  setSessionStatus,
+  setSessionEnd,
 } from "@/context/slices/authSlice";
 import {
   clearDeviceState,
@@ -29,7 +29,7 @@ import {
 } from "@/context/slices/deviceSlice";
 import { persistor } from "@/context/store";
 import { clearNotifications } from "@/services/scheduledNotifications";
-import { SessionStatus } from "@/types/auth.types";
+import { SessionEnd } from "@/types/auth.types";
 import {
   clearAuthDataFromSecureStore,
   loadAuthDataFromSecureStore,
@@ -41,9 +41,6 @@ import { router } from "expo-router";
 import { deleteItemAsync } from "expo-secure-store";
 import { Alert } from "react-native";
 import { logout as appLogout } from "react-native-app-auth";
-
-/** Why the session ended, which is also the status it ends in. */
-export type SessionEndReason = Extract<SessionStatus, "expired" | "signedOut">;
 
 // Each step runs whatever happened to the one before: a keychain error must not leave
 // the apps list on screen, which is how a failed logout used to clear nothing at all.
@@ -69,14 +66,14 @@ const readAppIds = async (): Promise<string[]> => {
  */
 export const endSession = createAsyncThunk<
   void,
-  SessionEndReason,
+  SessionEnd,
   { state: { auth: AuthState } }
 >(
   "auth/endSession",
-  async (reason, { dispatch }) => {
+  async (end, { dispatch }) => {
     // Before the first await, so an expiry reported again while this one is still
     // clearing finds the session already ended and is dropped by `condition`.
-    dispatch(setSessionStatus(reason));
+    dispatch(setSessionEnd(end));
 
     // Read before anything is cleared: Asgardeo needs the id token, and each app's
     // exchanged token is stored under its id.
@@ -104,11 +101,11 @@ export const endSession = createAsyncThunk<
     dispatch(setApps([]));
     dispatch(clearDeviceState());
     // resetAll put the whole tree, status included, back to its initial state.
-    dispatch(setSessionStatus(reason));
+    dispatch(setSessionEnd(end));
 
     // Ending the Asgardeo session opens a browser, which only makes sense when the
     // user asked to sign out. After an expiry, keeping it lets them sign straight back in.
-    if (reason !== "signedOut") return;
+    if (end.status !== "signedOut") return;
 
     const signedOutIdToken = idToken;
     if (signedOutIdToken) {

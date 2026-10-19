@@ -54,4 +54,10 @@ export type SessionSignal =
   | { status: "refreshing" }
   | { status: "authenticated"; authData: AuthData }
   | { status: "degraded" }
-  | { status: "expired" };
+  // rotationLost: an earlier refresh never saw its reply, so the server rotated the
+  // refresh token away while the connection was down. The user did nothing to cause it.
+  | { status: "expired"; rotationLost: boolean };
+
+/** How a session ended: the server refused the refresh token, or the user signed out. */
+export type SessionEnd =
+  Extract<SessionSignal, { status: "expired" }> | { status: "signedOut" };

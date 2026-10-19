@@ -142,6 +142,7 @@ export const injectedJavaScript = `window.nativebridge = {
     requestOpenMicroApp: (appId, data) => window.ReactNativeWebView.postMessage(JSON.stringify({ topic: "open_micro_app", data: { appId, data } })),
     requestGetLaunchData: () => window.ReactNativeWebView.postMessage(JSON.stringify({ topic: "get_launch_data" })),
     resolveGetLaunchData: (data) => console.log("Launch Data:", data),
+    rejectToken: (err) => console.error("Token request failed:", err),
     resolveIdToken: (token) => console.log("ID Token received:", token),
     rejectIdToken: (err) => console.error("ID Token request failed:", err),
     requestKeyboardWillShow: () => window.ReactNativeWebView.postMessage(JSON.stringify({ topic: "keyboard_will_show" })),

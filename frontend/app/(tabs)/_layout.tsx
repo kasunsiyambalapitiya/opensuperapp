@@ -95,8 +95,6 @@ const tabs: TabType[] = [
 ];
 
 export default function TabLayout() {
-  useRestoreLastTab();
-
   const authEmail = useSelector((state: RootState) => state.auth.email);
   const workEmail = useSelector(
     (state: RootState) => state.userInfo.userInfo?.workEmail
@@ -105,6 +103,11 @@ export default function TabLayout() {
   const isAuthenticated = useSelector(selectIsSignedIn);
 
   const { loading, rules } = useTabVisibilityRules();
+  const effectiveRules = loading ? DEFAULT_TAB_CONFIG : rules;
+
+  useRestoreLastTab((tabName) =>
+    shouldShowTab(tabName, email, isAuthenticated, effectiveRules)
+  );
 
   return (
     <Tabs
@@ -121,7 +124,6 @@ export default function TabLayout() {
       }}
     >
       {tabs.map((tab, index) => {
-        const effectiveRules = loading ? DEFAULT_TAB_CONFIG : rules;
         const showTab = shouldShowTab(tab.name, email, isAuthenticated, effectiveRules);
 
         return (

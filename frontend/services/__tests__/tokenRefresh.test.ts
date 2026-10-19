@@ -156,19 +156,6 @@ global.fetch = mockFetch as unknown as typeof fetch;
 
 const alertMock = Alert.alert as jest.Mock;
 
-/**
- * authService rate-limits the session alert to one per cooldown window, so a
- * test that expects a second alert has to wait the window out. `Date.now` is
- * spied rather than slept on, and the clock jumps between tests so one test's
- * alert cannot suppress the next one's.
- */
-let mockNow = 1700000000000;
-const ALERT_COOLDOWN_GAP_MS = 60000;
-const advancePastAlertCooldown = () => {
-  mockNow += ALERT_COOLDOWN_GAP_MS;
-  alertMock.mockClear();
-};
-
 // What the refresh told the rest of the app about the session. The one listener
 // in app/_layout turns "expired" into endSession, so an "expired" here is a logout.
 let signals: SessionSignal[];
@@ -177,8 +164,6 @@ const expiries = () => signals.filter((s) => s.status === "expired").length;
 beforeEach(() => {
   mockFetch.mockReset();
   alertMock.mockClear();
-  advancePastAlertCooldown();
-  jest.spyOn(Date, "now").mockImplementation(() => mockNow);
 
   mockLoadAuthDataFromSecureStore.mockReset().mockResolvedValue(storedAuth);
   mockSaveAuthDataToSecureStore.mockReset().mockResolvedValue(undefined);
@@ -262,39 +247,35 @@ describe("refreshAccessToken", () => {
     expect(expiries()).toBe(1);
   });
 
-  it("tells an ordinary expiry as an expiry when no refresh was ever interrupted", async () => {
+  it("reports an ordinary expiry as one, when no refresh was ever interrupted", async () => {
     mockReadInterruptedRefresh.mockResolvedValue(null);
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
     await refreshAccessToken();
 
-    expect(alertMock).toHaveBeenCalledTimes(1);
-    expect(alertMock.mock.calls[0][0]).toBe("Session Expired");
-    expect(alertMock.mock.calls[0][0]).not.toBe("Signed Out");
-    expect(alertMock.mock.calls[0][1]).not.toMatch(/connection/i);
+    expect(signals).toContainEqual({ status: "expired", rotationLost: false });
   });
 
-  it("tells a lost rotation differently from an ordinary expiry", async () => {
+  it("reports a lost rotation differently from an ordinary expiry", async () => {
     mockReadInterruptedRefresh.mockResolvedValue({ interruptedAt: 1 });
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
     await refreshAccessToken();
 
-    expect(alertMock).toHaveBeenCalledTimes(1);
-    const [lostTitle, lostMessage] = alertMock.mock.calls[0];
-    expect(lostTitle).toBe("Signed Out");
-    expect(lostMessage).toMatch(/lost your sign-in/i);
-    expect(lostMessage).toMatch(/connection was down/i);
+    expect(signals).toContainEqual({ status: "expired", rotationLost: true });
+    expect(mockClearInterruptedRefresh).toHaveBeenCalled();
+  });
 
-    // Same failure, no interruption marker: the copy has to differ, or the
-    // marker is being read and thrown away.
-    advancePastAlertCooldown();
+  // The sign-in sheet tells the user; a dialog from here as well asks them twice.
+  it("leaves telling the user to the app, with no dialog of its own", async () => {
+    mockReadInterruptedRefresh.mockResolvedValue({ interruptedAt: 1 });
+    mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
+
+    await refreshAccessToken();
     mockReadInterruptedRefresh.mockResolvedValue(null);
     await refreshAccessToken();
 
-    const [expiredTitle, expiredMessage] = alertMock.mock.calls[0];
-    expect(expiredTitle).not.toBe(lostTitle);
-    expect(expiredMessage).not.toBe(lostMessage);
+    expect(alertMock).not.toHaveBeenCalled();
   });
 
   it("never logs out when the network is down, however many attempts fail", async () => {
@@ -446,20 +427,6 @@ describe("refreshAccessToken", () => {
       })
     );
     expect(expiries()).toBe(0);
-  });
-
-  it("does not stack session alerts while the cooldown is open", async () => {
-    mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
-
-    await refreshAccessToken();
-    await refreshAccessToken();
-
-    expect(alertMock).toHaveBeenCalledTimes(1);
-
-    // And the suppression is a cooldown, not a latch that never reopens.
-    advancePastAlertCooldown();
-    await refreshAccessToken();
-    expect(alertMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -630,7 +597,10 @@ describe("what the refresh reports about the session", () => {
 
     await refreshAccessToken();
 
-    expect(signals).toEqual([{ status: "refreshing" }, { status: "expired" }]);
+    expect(signals).toEqual([
+      { status: "refreshing" },
+      { status: "expired", rotationLost: false },
+    ]);
   });
 
   it("reports expired once however many callers were waiting on the refresh", async () => {

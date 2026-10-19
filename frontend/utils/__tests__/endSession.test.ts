@@ -83,6 +83,8 @@ jest.mock("@/utils/microAppCacheStore", () => ({
   syncMicroAppCacheForUser: jest.fn(),
 }));
 
+const EXPIRED = { status: "expired", rotationLost: false } as const;
+
 const STORED = {
   accessToken: "access-token",
   refreshToken: "refresh-token",
@@ -143,7 +145,7 @@ describe("endSession('signedOut')", () => {
   it("clears everything on the device, then tells Asgardeo", async () => {
     const { store, actions } = buildSignedInStore();
 
-    await store.dispatch(endSession("signedOut"));
+    await store.dispatch(endSession({ status: "signedOut" }));
 
     expect(clearAuthDataFromSecureStore).toHaveBeenCalledTimes(1);
     expect(clearAllExchangedTokens).toHaveBeenCalledWith(["app-a", "app-b"]);
@@ -179,7 +181,7 @@ describe("endSession('signedOut')", () => {
     (appLogout as jest.Mock).mockRejectedValue(new Error("Network request failed"));
     const { store } = buildSignedInStore();
 
-    await store.dispatch(endSession("signedOut"));
+    await store.dispatch(endSession({ status: "signedOut" }));
 
     for (const step of localSteps()) {
       expect(step).toHaveBeenCalled();
@@ -197,7 +199,7 @@ describe("endSession('signedOut')", () => {
     });
     const { store } = buildSignedInStore();
 
-    await store.dispatch(endSession("signedOut"));
+    await store.dispatch(endSession({ status: "signedOut" }));
 
     expect(appLogout).not.toHaveBeenCalled();
     expect(clearAuthDataFromSecureStore).toHaveBeenCalled();
@@ -209,7 +211,7 @@ describe("endSession('expired')", () => {
   it("clears local state without Asgardeo or a dialog: the user asked for nothing", async () => {
     const { store } = buildSignedInStore();
 
-    await store.dispatch(endSession("expired"));
+    await store.dispatch(endSession(EXPIRED));
 
     for (const step of localSteps()) {
       expect(step).toHaveBeenCalled();
@@ -220,15 +222,36 @@ describe("endSession('expired')", () => {
     expect(store.getState().auth.accessToken).toBeNull();
   });
 
+  it("remembers that the sign-in was lost in a rotation, for the sign-in prompt", async () => {
+    const { store } = buildSignedInStore();
+
+    await store.dispatch(endSession({ status: "expired", rotationLost: true }));
+
+    expect(store.getState().auth.sessionStatus).toBe("expired");
+    expect(store.getState().auth.rotationLost).toBe(true);
+
+    // The next session starts with a clean slate.
+    store.dispatch(setAuth(STORED));
+    expect(store.getState().auth.rotationLost).toBe(false);
+  });
+
+  it("does not report a lost rotation for an ordinary expiry", async () => {
+    const { store } = buildSignedInStore();
+
+    await store.dispatch(endSession(EXPIRED));
+
+    expect(store.getState().auth.rotationLost).toBe(false);
+  });
+
   it("runs once however many times the expiry is reported", async () => {
     const { store } = buildSignedInStore();
 
     await Promise.all([
-      store.dispatch(endSession("expired")),
-      store.dispatch(endSession("expired")),
-      store.dispatch(endSession("expired")),
+      store.dispatch(endSession(EXPIRED)),
+      store.dispatch(endSession(EXPIRED)),
+      store.dispatch(endSession(EXPIRED)),
     ]);
-    await store.dispatch(endSession("expired"));
+    await store.dispatch(endSession(EXPIRED));
 
     expect(clearAuthDataFromSecureStore).toHaveBeenCalledTimes(1);
     expect(mockPurge).toHaveBeenCalledTimes(1);
@@ -246,7 +269,7 @@ describe("each local step is independent", () => {
     failing().mockRejectedValue(new Error("boom"));
     const { store, actions } = buildSignedInStore();
 
-    await store.dispatch(endSession("signedOut"));
+    await store.dispatch(endSession({ status: "signedOut" }));
 
     for (const step of localSteps()) {
       expect(step).toHaveBeenCalled();
@@ -262,7 +285,7 @@ describe("each local step is independent", () => {
     );
     const { store } = buildSignedInStore();
 
-    await store.dispatch(endSession("signedOut"));
+    await store.dispatch(endSession({ status: "signedOut" }));
 
     for (const step of localSteps()) {
       expect(step).toHaveBeenCalled();

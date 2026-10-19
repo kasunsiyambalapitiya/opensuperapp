@@ -1,0 +1,154 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+import { LAST_ACTIVE_PATH_KEY } from "@/constants/Constants";
+import { ScreenPaths } from "@/constants/ScreenPaths";
+import { useRestoreLastTab } from "@/hooks/useRestoreLastTab";
+import { SessionStatus } from "@/types/auth.types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React from "react";
+import { Provider } from "react-redux";
+import { createStore } from "redux";
+import { act, create } from "react-test-renderer";
+
+jest.mock("@react-native-async-storage/async-storage", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+// react-redux's package.json "react-native" export condition points at an
+// ESM build this project's Jest transform can't parse; the "default"
+// (alternate-renderers) condition resolves to the same API via CommonJS.
+jest.mock("react-redux", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("react-redux/alternate-renderers")
+);
+const mockRouter = { replace: jest.fn() };
+jest.mock("expo-router", () => ({ useRouter: () => mockRouter }));
+
+type SetStatus = { type: "set"; sessionStatus: SessionStatus };
+
+// Stands in for the tab bar's own rules: Chat is shown only to a signed-in user.
+const visibleTabs = (signedIn: boolean) => (tabName: string) =>
+  tabName !== "chat" || signedIn;
+
+const Tabs = ({ signedIn }: { signedIn: boolean }) => {
+  useRestoreLastTab(visibleTabs(signedIn));
+  return null;
+};
+
+const mount = async (sessionStatus: SessionStatus, lastPath: ScreenPaths) => {
+  await AsyncStorage.setItem(LAST_ACTIVE_PATH_KEY, lastPath);
+  const store = createStore(
+    (
+      state: { auth: { sessionStatus: SessionStatus } } = {
+        auth: { sessionStatus },
+      },
+      action: SetStatus | { type: string }
+    ) =>
+      action.type === "set"
+        ? { auth: { sessionStatus: (action as SetStatus).sessionStatus } }
+        : state
+  );
+  const signedIn = (status: SessionStatus) =>
+    ["authenticated", "refreshing", "degraded"].includes(status);
+
+  let tree!: ReturnType<typeof create>;
+  await act(async () => {
+    tree = create(
+      <Provider store={store}>
+        <Tabs signedIn={signedIn(sessionStatus)} />
+      </Provider>
+    );
+  });
+  await act(async () => {
+    jest.runOnlyPendingTimers();
+  });
+
+  const setStatus = async (status: SessionStatus) => {
+    await act(async () => {
+      store.dispatch({ type: "set", sessionStatus: status });
+      tree.update(
+        <Provider store={store}>
+          <Tabs signedIn={signedIn(status)} />
+        </Provider>
+      );
+    });
+    await act(async () => {
+      jest.runOnlyPendingTimers();
+    });
+  };
+  return { setStatus };
+};
+
+beforeEach(async () => {
+  jest.useFakeTimers();
+  mockRouter.replace.mockClear();
+  await AsyncStorage.clear();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe("useRestoreLastTab", () => {
+  it("puts a signed-in user back on the tab they left", async () => {
+    await mount("authenticated", ScreenPaths.CHAT);
+
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.CHAT);
+  });
+
+  it.each<SessionStatus>(["signedOut", "expired"])(
+    "sends a %s user to the Feed rather than a tab they cannot see",
+    async (status) => {
+      await mount(status, ScreenPaths.CHAT);
+
+      expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+      expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.FEED);
+    }
+  );
+
+  it("still restores a tab a signed-out user can see", async () => {
+    await mount("signedOut", ScreenPaths.PROFILE);
+
+    expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.PROFILE);
+  });
+
+  it("decides nothing while the session is still being restored", async () => {
+    await mount("restoring", ScreenPaths.CHAT);
+
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+  });
+
+  it("restores once the session is known, and only once", async () => {
+    const { setStatus } = await mount("restoring", ScreenPaths.CHAT);
+
+    await setStatus("authenticated");
+    await setStatus("refreshing");
+    await setStatus("authenticated");
+
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.CHAT);
+  });
+
+  it("goes to the Feed when a restore ends signed out", async () => {
+    const { setStatus } = await mount("restoring", ScreenPaths.CHAT);
+
+    await setStatus("signedOut");
+
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.FEED);
+  });
+});
