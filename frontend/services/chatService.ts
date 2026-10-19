@@ -19,8 +19,8 @@ import {
   isTokenExpired,
   loadAuthData,
   logout,
-  refreshAccessToken,
 } from "@/services/authService";
+import { refreshAccessToken } from "@/services/tokenRefresh";
 import {
   ChatMessage,
   HistoryMessage,

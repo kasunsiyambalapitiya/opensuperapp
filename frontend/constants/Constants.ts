@@ -148,11 +148,15 @@ export const ID_TOKEN = "secure_id_token";
 export const EXPIRES_AT_KEY = "secure_expires_at";
 export const AUTH_EMAIL_KEY = "secure_auth_email";
 export const USER_ID_KEY = "secure_userid";
+// The whole token set lives here as one JSON blob, so a write is all-or-nothing.
+// The six keys above are still read (and cleaned up) to migrate older installs.
+export const AUTH_BUNDLE_KEY = "secure_auth_bundle";
 
 // Keys for Async Storage
 export const LAST_NOTIFICATION_OPENED_AT = "last_notification_opened_at";
 export const ALARM_PERMISSION_PROMPTED_KEY = "alarm_permission_prompted";
 export const PENDING_NOTIFICATION_NAVIGATION = "pending_notification_navigation";
+export const REFRESH_INTERRUPTED_KEY = "auth-refresh-interrupted";
 
 // Android Notification Configuration
 export const NOTIFICATION_CHANNEL_ID =

@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import AppProviders from "@/components/contexts/AppProviders";
+import OfflineBanner from "@/components/OfflineBanner";
 import CloseButton from "@/components/headers/CloseButton";
 import SplashModal from "@/components/SplashModal";
 import { APPS, isAndroid, NOTIFICATIONS_QUERY_KEY, USER_INFO } from "@/constants/Constants";
@@ -224,6 +225,7 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="+not-found" />
               </Stack>
+              <OfflineBanner />
             </AppProviders>
           </PersistGate>
         </Provider>

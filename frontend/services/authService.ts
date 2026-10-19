@@ -29,7 +29,9 @@ import {
   updateExchangedToken,
 } from "@/context/slices/appSlice";
 import { AppDispatch } from "@/context/store";
+import { refreshAccessToken } from "@/services/tokenRefresh";
 import { AppScope } from "@/types/appConfig.types";
+import { AuthData, DecodedIdToken } from "@/types/auth.types";
 import createAuthRequestBody from "@/utils/authBody";
 import {
   clearAuthDataFromSecureStore,
@@ -46,29 +48,17 @@ import { jwtDecode } from "jwt-decode";
 import { Alert } from "react-native";
 import { logout as appLogout, AuthorizeResult } from "react-native-app-auth";
 
+// Re-exported so the many existing importers of these shapes do not have to move.
+export type { AuthData, DecodedIdToken };
+
 const GRANT_TYPE_AUTHORIZATION_CODE = "authorization_code";
-const GRANT_TYPE_REFRESH_TOKEN = "refresh_token";
 const GRANT_TYPE_TOKEN_EXCHANGE =
   "urn:ietf:params:oauth:grant-type:token-exchange";
 const SUBJECT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:jwt";
 const REQUESTED_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 const MILLISECONDS_IN_A_SECOND = 1000;
 const SCOPE = "openid email groups profile";
-let refreshPromise: Promise<AuthData | null> | null = null;
 
-export interface DecodedIdToken {
-  email?: string;
-  userid?: string;
-}
-
-export interface AuthData {
-  accessToken: string;
-  refreshToken: string;
-  idToken: string;
-  email?: string;
-  userId?: string;
-  expiresAt: number;
-}
 
 export const getAccessToken = async (
   request: any,
@@ -122,102 +112,6 @@ export const getAccessToken = async (
     }
   }
   return null;
-};
-
-export const refreshAccessToken = async (
-  onLogout: () => Promise<void>
-): Promise<AuthData | null> => {
-  if (refreshPromise) {
-    return refreshPromise; // If a refresh is already in progress, return the same promise
-  }
-
-  refreshPromise = (async () => {
-    try {
-      const storedData = await loadAuthDataFromSecureStore();
-      if (!storedData) {
-        refreshPromise = null;
-        return null;
-      }
-
-      const authData: AuthData = storedData;
-      if (!authData.refreshToken) {
-        refreshPromise = null;
-        return null;
-      }
-
-      if (!TOKEN_URL) {
-        console.error(
-          "TOKEN_URL is not defined. Check your environment variables."
-        );
-        refreshPromise = null;
-        return null;
-      }
-
-      const requestBody = createAuthRequestBody({
-        grantType: GRANT_TYPE_REFRESH_TOKEN,
-        clientId: CLIENT_ID,
-        refreshToken: authData.refreshToken,
-      });
-
-      const response = await fetch(TOKEN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: requestBody,
-      });
-
-      if (!response.ok) {
-        console.error(
-          `Token refresh failed: ${response.status} ${response.statusText}`
-        );
-        if (response.status === 400) await onLogout();
-
-        refreshPromise = null;
-        return null;
-      }
-
-      const data = await response.json();
-
-      if (data.access_token && data.id_token) {
-        const decodedIdToken = jwtDecode<DecodedIdToken>(data.id_token);
-        const exp = jwtDecode<{ exp: number }>(data.access_token).exp || 0;
-        const { email, userid: userId } = decodedIdToken;
-
-        const updatedAuthData: AuthData = {
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token || authData.refreshToken,
-          idToken: data.id_token,
-          email,
-          userId,
-          expiresAt: exp * MILLISECONDS_IN_A_SECOND,
-        };
-
-        await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
-
-        refreshPromise = null;
-        return updatedAuthData;
-      }
-
-      refreshPromise = null;
-      return null;
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error("Token refresh error:", err.message);
-        if (err.message.includes("Network request failed")) {
-          Alert.alert("Network Error", "Check your connection and try again.");
-        } else {
-          await onLogout();
-        }
-      } else {
-        console.error("An unexpected error occurred during token refresh.");
-        await onLogout();
-      }
-
-      refreshPromise = null;
-      return null;
-    }
-  })();
-
-  return refreshPromise;
 };
 
 export const logout = async () => {
