@@ -17,12 +17,8 @@ import { removeGoogleAuthState } from "@/services/googleService";
 import { syncMicroAppCacheForUser } from "@/utils/microAppCacheStore";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { getItemAsync, setItemAsync } from "expo-secure-store";
-import {
-  AuthData,
-  loadAuthData,
-  logout,
-  refreshAccessToken,
-} from "../../services/authService";
+import { AuthData, loadAuthData, logout } from "../../services/authService";
+import { refreshAccessToken } from "../../services/tokenRefresh";
 import { getAppConfigurations } from "./appConfigSlice";
 
 interface AuthState {

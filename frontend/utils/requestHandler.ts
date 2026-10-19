@@ -13,7 +13,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { refreshAccessToken } from "@/services/authService";
+import { Event } from "@/constants/enums/Event";
+import { refreshAccessToken } from "@/services/tokenRefresh";
+import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { loadAuthDataFromSecureStore } from "@/utils/authTokenStore";
 import axios, { AxiosRequestConfig } from "axios";
 import dayjs from "dayjs";
@@ -64,8 +66,16 @@ export const apiRequest = async (
   }
 
   try {
-    return await axios(config); // Make the API request
+    const response = await axios(config); // Make the API request
+    reachabilityEmitter.emit(Event.AuthReachability, true);
+    return response;
   } catch (error: any) {
+    // No `response` means the request never reached the backend, as opposed to reaching
+    // it and being refused.
+    if (!error.response) {
+      reachabilityEmitter.emit(Event.AuthReachability, false);
+    }
+
     if (error.response?.status === 401) {
       const newAuthData = await refreshAccessToken(onLogout);
       if (newAuthData?.accessToken) {

@@ -82,4 +82,13 @@ class EventEmitter<T> {
 const qrScannerEmitter = new EventEmitter<string>();
 const authEmitter = new EventEmitter<void>();
 
-export { authEmitter, qrScannerEmitter };
+/**
+ * Whether the app is currently reaching the backend, as a boolean payload.
+ *
+ * Evidence, not a connectivity API: it turns false when a request has actually failed at
+ * network level and true again when one succeeds. A radio that claims to be connected
+ * behind a captive portal still reports false here, which is the case the user is in.
+ */
+const reachabilityEmitter = new EventEmitter<boolean>();
+
+export { authEmitter, qrScannerEmitter, reachabilityEmitter };
