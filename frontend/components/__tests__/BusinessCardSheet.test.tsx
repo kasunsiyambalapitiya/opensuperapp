@@ -89,7 +89,6 @@ jest.mock("react-native-qrcode-svg", () => ({
   default: () => null,
 }));
 
-jest.mock("@/services/authService", () => ({ logout: jest.fn() }));
 jest.mock("@/services/walletPassService", () => ({
   saveBusinessCardPass: jest.fn().mockResolvedValue(false),
 }));

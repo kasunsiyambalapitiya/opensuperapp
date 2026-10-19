@@ -58,13 +58,10 @@ export const disableFCMToken = createAsyncThunk(
       }
       const url = `${BASE_URL}/users/fcm-tokens?fcmToken=${fcmToken}`;
 
-      const response = await apiRequest(
-        {
-          url,
-          method: "DELETE",
-        },
-        async () => {}
-      );
+      const response = await apiRequest({
+        url,
+        method: "DELETE",
+      });
 
       if (response?.status === 200) {
         return response.data;
@@ -102,18 +99,15 @@ export const clearLastSentFcmToken = createAsyncThunk(
 export const pushFcmToken = createAsyncThunk(
   "device/pushFcmToken",
   async (
-    { fcmToken, onLogout }: { fcmToken: string; onLogout: () => Promise<void> },
+    { fcmToken }: { fcmToken: string },
     { dispatch, rejectWithValue }
   ) => {
     try {
       const url = `${BASE_URL}/users/fcm-tokens?fcmToken=${fcmToken}`;
-      const response = await apiRequest(
-        {
-          url,
-          method: "POST",
-        },
-        onLogout
-      );
+      const response = await apiRequest({
+        url,
+        method: "POST",
+      });
 
       if (response?.status === 200) {
         await setItemAsync(LAST_SENT_FCM_TOKEN, fcmToken);
@@ -129,7 +123,7 @@ export const pushFcmToken = createAsyncThunk(
       // Safe to repeat, as the backend upserts on the token.
       if (!error?.response) {
         enqueueForReconnect("pushFcmToken", () =>
-          dispatch(pushFcmToken({ fcmToken, onLogout }))
+          dispatch(pushFcmToken({ fcmToken }))
         );
       }
       return rejectWithValue(error);

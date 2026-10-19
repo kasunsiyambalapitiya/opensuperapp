@@ -19,6 +19,7 @@ import SignInMessage from "@/components/SignInMessage";
 import SignInModal from "@/components/SignInModal";
 import { Colors } from "@/constants/Colors";
 import { NOT_DOWNLOADED } from "@/constants/Constants";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import {
   removeDownloading,
   updateDownloadProgress,
@@ -29,7 +30,6 @@ import {
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
-import { logout } from "@/services/authService";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -51,6 +51,7 @@ const Store = () => {
     (state: RootState) => state.apps.downloadProgress
   );
   const { accessToken } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
   );
@@ -86,7 +87,7 @@ const Store = () => {
 
       setIsLoading(true);
       try {
-        await loadMicroAppDetails(dispatch, logout);
+        await loadMicroAppDetails(dispatch);
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -117,7 +118,7 @@ const Store = () => {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            await removeMicroApp(dispatch, appId, logout);
+            await removeMicroApp(dispatch, appId);
           },
         },
       ]
@@ -156,8 +157,7 @@ const Store = () => {
         await downloadMicroApp(
           dispatch,
           currentItem.appId,
-          currentItem.downloadUrl,
-          logout
+          currentItem.downloadUrl
         );
       } catch (error) {
         console.error("Installation failed:", error);
@@ -181,7 +181,7 @@ const Store = () => {
   // Modified download handler to create a serialized task queue
   const handleDownload = (appId: string, downloadUrl: string) => {
     //if not logged in, show signin
-    if (!accessToken) {
+    if (!isSignedIn) {
       setShowModal(true);
       return;
     }
@@ -200,7 +200,7 @@ const Store = () => {
   };
 
   // When default apps added need to remove this logic
-  if (!accessToken) {
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>

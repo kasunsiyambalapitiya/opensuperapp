@@ -13,17 +13,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { AUTH_CONFIG } from "@/config/authConfig";
-import {
-  APPS,
-  CLIENT_ID,
-  LOGOUT_URL,
-  REDIRECT_URI,
-  SUCCESS,
-  TOKEN_URL,
-  USER_INFO,
-} from "@/constants/Constants";
-import { Event } from "@/constants/enums/Event";
+import { CLIENT_ID, SUCCESS, TOKEN_URL } from "@/constants/Constants";
 import {
   updateExchangedIdToken,
   updateExchangedToken,
@@ -34,19 +24,15 @@ import { AppScope } from "@/types/appConfig.types";
 import { AuthData, DecodedIdToken } from "@/types/auth.types";
 import createAuthRequestBody from "@/utils/authBody";
 import {
-  clearAuthDataFromSecureStore,
   loadAuthDataFromSecureStore,
   saveAuthDataToSecureStore,
   SecureAuthData,
 } from "@/utils/authTokenStore";
-import { authEmitter } from "@/utils/eventEmitter";
-import { clearAllExchangedTokens } from "@/utils/exchangedTokenStore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import dayjs from "dayjs";
 import { jwtDecode } from "jwt-decode";
 import { Alert } from "react-native";
-import { logout as appLogout, AuthorizeResult } from "react-native-app-auth";
+import { AuthorizeResult } from "react-native-app-auth";
 
 // Re-exported so the many existing importers of these shapes do not have to move.
 export type { AuthData, DecodedIdToken };
@@ -114,55 +100,6 @@ export const getAccessToken = async (
   return null;
 };
 
-export const logout = async () => {
-  try {
-    // Retrieve stored authentication data
-    const secureData = await loadAuthDataFromSecureStore();
-    if (!secureData) {
-      console.error("No stored authentication data found.");
-      return;
-    }
-    const idToken = secureData?.idToken;
-    const appsJson = await AsyncStorage.getItem(APPS); // used to clear each app's exchanged token below
-    const appIds = appsJson
-      ? (JSON.parse(appsJson) as { appId: string }[]).map((a) => a.appId)
-      : [];
-
-    if (!LOGOUT_URL) {
-      throw new Error(
-        "LOGOUT_URL is not defined. Check your environment variables."
-      );
-    }
-
-    // If idToken is missing, proceed with local logout
-    if (!idToken) {
-      console.warn("No idToken found. Performing local logout only.");
-      await clearAllExchangedTokens(appIds);
-      await clearAuthDataFromSecureStore();
-      await AsyncStorage.removeItem(USER_INFO);
-      authEmitter.emit(Event.AuthLoggedOut, undefined);
-      return;
-    }
-
-    // Perform logout request
-    await appLogout(AUTH_CONFIG, {
-      idToken,
-      postLogoutRedirectUrl: REDIRECT_URI,
-    });
-    await clearAllExchangedTokens(appIds);
-    await clearAuthDataFromSecureStore();
-    await AsyncStorage.removeItem(USER_INFO);
-    authEmitter.emit(Event.AuthLoggedOut, undefined);
-  } catch (error) {
-    console.error("Error logging out from Asgardeo:", error);
-    Alert.alert(
-      "Error Logging Out",
-      "We could not log you out from Asgardeo at this moment. Please try again later."
-    );
-    throw error;
-  }
-};
-
 // Restore auth data form secure storage
 export const loadAuthData = async (): Promise<AuthData | null> => {
   const secureData = await loadAuthDataFromSecureStore();
@@ -181,7 +118,6 @@ export const tokenExchange = async (
   exchangedToken: string,
   exchangedIdToken: string,
   appId: string,
-  onLogout: () => Promise<void>,
   appScopes?: AppScope[]
 ): Promise<TokenExchangeResult | null> => {
   try {
@@ -222,9 +158,9 @@ export const tokenExchange = async (
 
     // Refresh access token if expired
     if (isTokenExpired(accessToken)) {
-      const newAuthData = await refreshAccessToken(onLogout);
+      const newAuthData = await refreshAccessToken();
       if (!newAuthData?.accessToken) {
-        return null; // Logout is triggered inside refreshAccessToken
+        return null; // refreshAccessToken has already reported the session's state
       }
       accessToken = newAuthData.accessToken;
     }
@@ -253,10 +189,10 @@ export const tokenExchange = async (
           console.warn(
             "Token exchange failed with 401. Attempting token refresh..."
           );
-          const newAuthData = await refreshAccessToken(onLogout);
+          const newAuthData = await refreshAccessToken();
 
           if (!newAuthData?.accessToken) {
-            return null; // Logout is triggered inside refreshAccessToken
+            return null; // refreshAccessToken has already reported the session's state
           }
 
           return attemptTokenExchange(newAuthData.accessToken);

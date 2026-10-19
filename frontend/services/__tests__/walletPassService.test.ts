@@ -89,8 +89,6 @@ jest.mock("expo-file-system", () => {
   };
 });
 
-const onLogout = jest.fn().mockResolvedValue(undefined);
-
 // The two business-card endpoints are the only backend calls that pass the
 // caller's raw token on in `x-user-assertion`, so the token is pinned here to
 // assert the header is set per call rather than by the shared request handler.
@@ -111,7 +109,7 @@ describe("addToAppleWallet", () => {
     (Sharing.isAvailableAsync as jest.Mock).mockResolvedValue(true);
     (Sharing.shareAsync as jest.Mock).mockResolvedValue(undefined);
 
-    const result = await addToAppleWallet(true, onLogout);
+    const result = await addToAppleWallet(true);
 
     expect(apiRequest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -119,8 +117,7 @@ describe("addToAppleWallet", () => {
         method: "GET",
         responseType: "arraybuffer",
         headers: { "x-user-assertion": ACCESS_TOKEN },
-      }),
-      onLogout
+      })
     );
     expect(mockWrite).toHaveBeenCalled();
     expect(Sharing.shareAsync).toHaveBeenCalledWith(lastFileUri, {
@@ -132,7 +129,7 @@ describe("addToAppleWallet", () => {
   it("does not write a file or open the share sheet on a non-2xx response", async () => {
     (apiRequest as jest.Mock).mockResolvedValue({ status: 503, data: undefined });
 
-    const result = await addToAppleWallet(true, onLogout);
+    const result = await addToAppleWallet(true);
 
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockWrite).not.toHaveBeenCalled();
@@ -150,7 +147,7 @@ describe("addToAppleWallet", () => {
       data: new ArrayBuffer(0),
     });
 
-    const result = await addToAppleWallet(true, onLogout);
+    const result = await addToAppleWallet(true);
 
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockWrite).not.toHaveBeenCalled();
@@ -160,7 +157,7 @@ describe("addToAppleWallet", () => {
   });
 
   it("makes no request when the wallet_pass_enabled flag is off", async () => {
-    const result = await addToAppleWallet(false, onLogout);
+    const result = await addToAppleWallet(false);
 
     expect(apiRequest).not.toHaveBeenCalled();
     expect(Sharing.shareAsync).not.toHaveBeenCalled();
@@ -182,15 +179,14 @@ describe("addToGoogleWallet", () => {
     });
     (Linking.openURL as jest.Mock).mockResolvedValue(true);
 
-    const result = await addToGoogleWallet(true, onLogout);
+    const result = await addToGoogleWallet(true);
 
     expect(apiRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://backend.example.com/business-card/google-save-url",
         method: "GET",
         headers: { "x-user-assertion": ACCESS_TOKEN },
-      }),
-      onLogout
+      })
     );
     expect(Linking.openURL).toHaveBeenCalledWith(saveUrl);
     expect(result).toBe(true);
@@ -199,7 +195,7 @@ describe("addToGoogleWallet", () => {
   it("does not open the share sheet / URL on a non-2xx response", async () => {
     (apiRequest as jest.Mock).mockResolvedValue({ status: 500, data: undefined });
 
-    const result = await addToGoogleWallet(true, onLogout);
+    const result = await addToGoogleWallet(true);
 
     expect(Linking.openURL).not.toHaveBeenCalled();
     expect(Alert.alert).toHaveBeenCalled();
@@ -207,7 +203,7 @@ describe("addToGoogleWallet", () => {
   });
 
   it("makes no request when the wallet_pass_enabled flag is off", async () => {
-    const result = await addToGoogleWallet(false, onLogout);
+    const result = await addToGoogleWallet(false);
 
     expect(apiRequest).not.toHaveBeenCalled();
     expect(Linking.openURL).not.toHaveBeenCalled();
@@ -222,7 +218,7 @@ describe("addToGoogleWallet", () => {
     });
     (Linking.openURL as jest.Mock).mockRejectedValue(new Error("no handler"));
 
-    await expect(addToGoogleWallet(true, onLogout)).resolves.toBe(false);
+    await expect(addToGoogleWallet(true)).resolves.toBe(false);
     expect(Alert.alert).toHaveBeenCalled();
   });
 });

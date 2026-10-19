@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { Event } from "@/constants/enums/Event";
+import { SessionSignal } from "@/types/auth.types";
 
 type EventHandler<T> = (data: T) => void;
 
@@ -80,7 +81,11 @@ class EventEmitter<T> {
 }
 
 const qrScannerEmitter = new EventEmitter<string>();
-const authEmitter = new EventEmitter<void>();
+/**
+ * What token refresh learns about the session. tokenRefresh has no store access, so it
+ * reports here and hooks/useSessionListener, mounted once, turns it into Redux state.
+ */
+const authEmitter = new EventEmitter<SessionSignal>();
 
 /**
  * Whether the app is currently reaching the backend, as a boolean payload.

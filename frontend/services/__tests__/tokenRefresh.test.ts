@@ -18,10 +18,10 @@
 // server has provably rejected (400 invalid_grant) may end a session. A dead
 // connection, a 5xx, a captive portal, a timeout - none of those are a verdict
 // on the session, and none of them may log anyone out.
-import type { AuthData } from "@/types/auth.types";
+import type { AuthData, SessionSignal } from "@/types/auth.types";
 import { refreshAccessToken } from "@/services/tokenRefresh";
 import { Event } from "@/constants/enums/Event";
-import { reachabilityEmitter } from "@/utils/eventEmitter";
+import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { Alert } from "react-native";
 
 // The token endpoint is read when the module loads, so it is pinned here
@@ -169,7 +169,10 @@ const advancePastAlertCooldown = () => {
   alertMock.mockClear();
 };
 
-let onLogout: jest.Mock;
+// What the refresh told the rest of the app about the session. The one listener
+// in app/_layout turns "expired" into endSession, so an "expired" here is a logout.
+let signals: SessionSignal[];
+const expiries = () => signals.filter((s) => s.status === "expired").length;
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -189,7 +192,8 @@ beforeEach(() => {
     exp: EXP_SECONDS,
   }));
 
-  onLogout = jest.fn().mockResolvedValue(undefined);
+  signals = [];
+  authEmitter.on(Event.AuthSession, (signal) => signals.push(signal));
   // The failure paths are expected to log; the assertions below are what
   // decides whether they behaved, not the console.
   jest.spyOn(console, "error").mockImplementation(() => {});
@@ -198,13 +202,14 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+  authEmitter.removeAllListeners();
 });
 
 describe("refreshAccessToken", () => {
   it("returns and persists the new token set when the server answers 200", async () => {
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     const expected: AuthData = {
       accessToken: "new-access-token",
@@ -226,7 +231,7 @@ describe("refreshAccessToken", () => {
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledTimes(1);
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledWith(expected);
     expect(mockClearInterruptedRefresh).toHaveBeenCalled();
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("carries the stored refresh token forward when the server does not rotate it", async () => {
@@ -237,31 +242,31 @@ describe("refreshAccessToken", () => {
       })
     );
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result?.accessToken).toBe("new-access-token");
     expect(result?.refreshToken).toBe(OLD_REFRESH_TOKEN);
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledWith(
       expect.objectContaining({ refreshToken: OLD_REFRESH_TOKEN })
     );
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("logs out once, without retrying, on a 400 invalid_grant", async () => {
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(onLogout).toHaveBeenCalledTimes(1);
+    expect(expiries()).toBe(1);
   });
 
   it("tells an ordinary expiry as an expiry when no refresh was ever interrupted", async () => {
     mockReadInterruptedRefresh.mockResolvedValue(null);
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
 
     expect(alertMock).toHaveBeenCalledTimes(1);
     expect(alertMock.mock.calls[0][0]).toBe("Session Expired");
@@ -273,7 +278,7 @@ describe("refreshAccessToken", () => {
     mockReadInterruptedRefresh.mockResolvedValue({ interruptedAt: 1 });
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
 
     expect(alertMock).toHaveBeenCalledTimes(1);
     const [lostTitle, lostMessage] = alertMock.mock.calls[0];
@@ -285,8 +290,7 @@ describe("refreshAccessToken", () => {
     // marker is being read and thrown away.
     advancePastAlertCooldown();
     mockReadInterruptedRefresh.mockResolvedValue(null);
-    const expiredLogout = jest.fn().mockResolvedValue(undefined);
-    await refreshAccessToken(expiredLogout);
+    await refreshAccessToken();
 
     const [expiredTitle, expiredMessage] = alertMock.mock.calls[0];
     expect(expiredTitle).not.toBe(lostTitle);
@@ -296,12 +300,12 @@ describe("refreshAccessToken", () => {
   it("never logs out when the network is down, however many attempts fail", async () => {
     mockFetch.mockRejectedValue(new TypeError("Network request failed"));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(mockMarkRefreshInterrupted).toHaveBeenCalled();
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
     expect(alertMock).not.toHaveBeenCalled();
   });
 
@@ -310,52 +314,52 @@ describe("refreshAccessToken", () => {
       .mockRejectedValueOnce(new TypeError("Network request failed"))
       .mockResolvedValueOnce(response(200, ISSUED_TOKENS));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result?.accessToken).toBe("new-access-token");
     expect(result?.refreshToken).toBe("new-refresh-token");
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("retries a 503 and keeps the session when the server stays down", async () => {
     mockFetch.mockResolvedValue(response(503, { error: "unavailable" }));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("retries a 400 that is not invalid_grant and keeps the session", async () => {
     mockFetch.mockResolvedValue(response(400, { error: "invalid_request" }));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("does not retry a 401 from the token endpoint, and does not log out", async () => {
     mockFetch.mockResolvedValue(response(401, { error: "unauthorized" }));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("treats a captive portal's unparsable 200 as the server's fault, not the session's", async () => {
     mockFetch.mockResolvedValue(unparsableResponse(200));
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("retries a 200 that came back without an id_token, and keeps the session", async () => {
@@ -363,29 +367,29 @@ describe("refreshAccessToken", () => {
       response(200, { access_token: "new-access-token" })
     );
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("gives up without a request when there is no stored refresh token", async () => {
     mockLoadAuthDataFromSecureStore.mockResolvedValue(null);
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("shares a single request between callers that overlap", async () => {
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
 
-    const first = refreshAccessToken(onLogout);
-    const second = refreshAccessToken(onLogout);
+    const first = refreshAccessToken();
+    const second = refreshAccessToken();
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -403,7 +407,7 @@ describe("refreshAccessToken", () => {
       throw new Error("Invalid token specified");
     });
 
-    const result = await refreshAccessToken(onLogout);
+    const result = await refreshAccessToken();
 
     expect(result?.refreshToken).toBe("new-refresh-token");
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledTimes(1);
@@ -416,20 +420,20 @@ describe("refreshAccessToken", () => {
         expiresAt: 0,
       })
     );
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("does not stack session alerts while the cooldown is open", async () => {
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
-    await refreshAccessToken(onLogout);
-    await refreshAccessToken(jest.fn().mockResolvedValue(undefined));
+    await refreshAccessToken();
+    await refreshAccessToken();
 
     expect(alertMock).toHaveBeenCalledTimes(1);
 
     // And the suppression is a cooldown, not a latch that never reopens.
     advancePastAlertCooldown();
-    await refreshAccessToken(jest.fn().mockResolvedValue(undefined));
+    await refreshAccessToken();
     expect(alertMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -448,7 +452,7 @@ describe("while the device is offline", () => {
     );
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
 
-    const refreshing = refreshAccessToken(onLogout);
+    const refreshing = refreshAccessToken();
     await new Promise((resolve) => setImmediate(resolve));
     expect(mockFetch).not.toHaveBeenCalled();
 
@@ -465,11 +469,11 @@ describe("while the device is offline", () => {
     // still means three requests, not three failed waits.
     mockFetch.mockRejectedValue(new TypeError("Network request failed"));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
 
     expect(mockWaitForOnline).toHaveBeenCalledTimes(3);
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
   });
 
   it("stops waiting after a bound, keeps the session, and sends nothing", async () => {
@@ -490,7 +494,7 @@ describe("while the device is offline", () => {
 
     jest.useFakeTimers();
     try {
-      const refreshing = refreshAccessToken(onLogout);
+      const refreshing = refreshAccessToken();
       await jest.advanceTimersByTimeAsync(OFFLINE_WAIT_TIMEOUT_MS - 1);
       expect(mockWaitForOnline.mock.calls[0][0].aborted).toBe(false);
 
@@ -504,7 +508,7 @@ describe("while the device is offline", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     // Nothing was sent, so nothing can have been rotated away.
     expect(mockMarkRefreshInterrupted).not.toHaveBeenCalled();
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
     expect(alertMock).not.toHaveBeenCalled();
     expect(seen).toEqual([false]);
   });
@@ -513,10 +517,10 @@ describe("while the device is offline", () => {
     mockWaitForOnline.mockRejectedValueOnce(
       Object.assign(new Error("Stopped waiting"), { name: "AbortError" })
     );
-    await expect(refreshAccessToken(onLogout)).resolves.toBeNull();
+    await expect(refreshAccessToken()).resolves.toBeNull();
 
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
-    await expect(refreshAccessToken(onLogout)).resolves.toMatchObject({
+    await expect(refreshAccessToken()).resolves.toMatchObject({
       accessToken: "new-access-token",
     });
   });
@@ -535,12 +539,12 @@ describe("what the user is told while the session is fine", () => {
     const { seen, off } = collectReachability();
     mockFetch.mockRejectedValue(new TypeError("Network request failed"));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
     off();
 
     // Once, not once per attempt: a single blip must not flicker the banner.
     expect(seen).toEqual([false]);
-    expect(onLogout).not.toHaveBeenCalled();
+    expect(expiries()).toBe(0);
     expect(alertMock).not.toHaveBeenCalled();
   });
 
@@ -548,7 +552,7 @@ describe("what the user is told while the session is fine", () => {
     const { seen, off } = collectReachability();
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
     off();
 
     expect(seen).toEqual([true]);
@@ -558,9 +562,79 @@ describe("what the user is told while the session is fine", () => {
     const { seen, off } = collectReachability();
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 
-    await refreshAccessToken(onLogout);
+    await refreshAccessToken();
     off();
 
     expect(seen).toEqual([true]);
+  });
+});
+
+describe("what the refresh reports about the session", () => {
+  it("reports refreshing, then authenticated with the new tokens, on success", async () => {
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    // The tokens go out with the signal so Redux gets them too, not just
+    // SecureStore.
+    expect(signals).toEqual([
+      { status: "refreshing" },
+      { status: "authenticated", authData: result },
+    ]);
+    expect(result?.accessToken).toBe("new-access-token");
+  });
+
+  it("reports degraded, and never expired, once network retries are spent", async () => {
+    mockFetch.mockRejectedValue(new TypeError("Network request failed"));
+
+    await refreshAccessToken();
+
+    expect(signals).toEqual([{ status: "refreshing" }, { status: "degraded" }]);
+  });
+
+  it("reports degraded when the server stays down", async () => {
+    mockFetch.mockResolvedValue(response(503, { error: "unavailable" }));
+
+    await refreshAccessToken();
+
+    expect(signals).toEqual([{ status: "refreshing" }, { status: "degraded" }]);
+  });
+
+  it("reports expired on invalid_grant", async () => {
+    mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
+
+    await refreshAccessToken();
+
+    expect(signals).toEqual([{ status: "refreshing" }, { status: "expired" }]);
+  });
+
+  it("reports expired once however many callers were waiting on the refresh", async () => {
+    mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => refreshAccessToken())
+    );
+
+    expect(results).toEqual([null, null, null, null, null]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(expiries()).toBe(1);
+  });
+
+  it("reports degraded when the new tokens cannot be stored", async () => {
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+    mockSaveAuthDataToSecureStore.mockRejectedValue(new Error("keychain"));
+
+    const result = await refreshAccessToken();
+
+    expect(result).toBeNull();
+    expect(signals).toEqual([{ status: "refreshing" }, { status: "degraded" }]);
+  });
+
+  it("reports nothing when there is no session to refresh", async () => {
+    mockLoadAuthDataFromSecureStore.mockResolvedValue(null);
+
+    await refreshAccessToken();
+
+    expect(signals).toEqual([]);
   });
 });

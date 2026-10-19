@@ -116,7 +116,6 @@ import { DOWNLOADED, NOT_DOWNLOADED } from "@/constants/Constants";
 import { downloadMicroApp } from "@/services/appStoreService";
 import { UpdateUserConfiguration } from "@/services/userConfigService";
 
-const logout = jest.fn(async () => {});
 const downloadUrl = "https://api.example.com/micro-apps/app-1/build.zip";
 
 // The progress updates in the download path are paced with a 100ms sleep each;
@@ -149,15 +148,13 @@ describe("downloadMicroApp", () => {
     const downloaded = await downloadMicroApp(
       dispatch as never,
       "app-1",
-      downloadUrl,
-      logout
+      downloadUrl
     );
 
     expect(downloaded).toBe(true);
     expect(UpdateUserConfiguration).toHaveBeenCalledWith(
       "app-1",
-      DOWNLOADED,
-      logout
+      DOWNLOADED
     );
     // Progress dispatches are dropped: they fire throughout and say nothing
     // about the ordering under test.
@@ -185,8 +182,7 @@ describe("downloadMicroApp", () => {
     const downloaded = await downloadMicroApp(
       dispatch as never,
       "app-1",
-      downloadUrl,
-      logout
+      downloadUrl
     );
 
     expect(downloaded).toBe(false);
@@ -194,8 +190,7 @@ describe("downloadMicroApp", () => {
     expect(UpdateUserConfiguration).toHaveBeenNthCalledWith(
       2,
       "app-1",
-      NOT_DOWNLOADED,
-      logout
+      NOT_DOWNLOADED
     );
     expect(
       mockCallOrder.filter((step) => step !== "dispatch:updateDownloadProgress")

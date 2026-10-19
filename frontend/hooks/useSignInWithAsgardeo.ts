@@ -18,7 +18,6 @@ import { getAppConfigurations } from "@/context/slices/appConfigSlice";
 import { setAuth, setAuthWithCheck } from "@/context/slices/authSlice";
 import { AppDispatch } from "@/context/store";
 import { processNativeAuthResult } from "@/services/authService";
-import { performLogout } from "@/utils/performLogout";
 import { AuthorizeResult, authorize } from "react-native-app-auth";
 import { useDispatch } from "react-redux";
 
@@ -35,10 +34,7 @@ export const useSignInWithAsgardeo = () => {
 
         // Load app configurations after successful login
         try {
-          const handleLogout = async () => {
-            await dispatch(performLogout()).unwrap();
-          };
-          await dispatch(getAppConfigurations(handleLogout)).unwrap();
+          await dispatch(getAppConfigurations()).unwrap();
         } catch (configError) {
           console.error("Failed to load app configurations", configError);
         }

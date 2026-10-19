@@ -24,27 +24,18 @@ import {
   requestNotificationPermission,
   setupTokenRefreshListener,
 } from "@/utils/push-notification";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
 /**
  * A custom hook to manage the FCM push notification token lifecycle.
  * Automatically requests permission, gets the token, and sends it to the backend
  * as soon as the user is authenticated. It also handles token refreshes.
- *
- * @param onLogout - The logout function to pass to the async thunk for handling auth errors.
  */
-export const usePushNotificationHandler = ({
-  onLogout,
-}: {
-  onLogout: () => Promise<void>;
-}) => {
+export const usePushNotificationHandler = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { accessToken } = useSelector((state: RootState) => state.auth);
   const { lastSentFCMToken } = useSelector((state: RootState) => state.device);
-
-  const onLogoutRef = useRef(onLogout);
-  onLogoutRef.current = onLogout;
 
   useEffect(() => {
     if (!ENABLE_FIREBASE) return;
@@ -58,7 +49,7 @@ export const usePushNotificationHandler = ({
           const fcmToken = await getFCMToken();
 
           if (fcmToken && fcmToken !== lastSentFCMToken) {
-            dispatch(pushFcmToken({ fcmToken, onLogout: onLogoutRef.current }));
+            dispatch(pushFcmToken({ fcmToken }));
           } else {
             console.warn(
               "No FCM token received or token is the same as the last sent token."
@@ -76,7 +67,6 @@ export const usePushNotificationHandler = ({
           dispatch(
             pushFcmToken({
               fcmToken: refreshedToken,
-              onLogout: onLogoutRef.current,
             })
           );
         } else {
@@ -92,5 +82,5 @@ export const usePushNotificationHandler = ({
     } else {
       console.warn("No accessToken — push notification setup skipped.");
     }
-  }, [accessToken, dispatch, lastSentFCMToken, onLogoutRef]);
+  }, [accessToken, dispatch, lastSentFCMToken]);
 };

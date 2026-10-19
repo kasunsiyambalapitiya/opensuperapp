@@ -20,16 +20,18 @@ import ProfileListItem from "@/components/ProfileListItem";
 import SignInMessage from "@/components/SignInMessage";
 import { Colors } from "@/constants/Colors";
 import { SUPER_APP_DEVELOPER_GROUP } from "@/constants/Constants";
+import { Event } from "@/constants/enums/Event";
 import { ScreenPaths } from "@/constants/ScreenPaths";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { disableFCMToken } from "@/context/slices/deviceSlice";
 import { getUserInfo } from "@/context/slices/userInfoSlice";
 import { AppDispatch, RootState } from "@/context/store";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import { useWalletPassConfig } from "@/hooks/useWalletPassConfig";
-import { logout } from "@/services/authService";
 import { BasicUserInfo } from "@/types/basicUserInfo.types";
 import { DecodedAccessToken } from "@/types/decodeAccessToken.types";
-import { performLogout } from "@/utils/performLogout";
+import { endSession } from "@/utils/endSession";
+import { authEmitter } from "@/utils/eventEmitter";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useNavigation } from "expo-router";
@@ -61,6 +63,7 @@ const SettingsScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const { accessToken } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
   const { userInfo } = useSelector((state: RootState) => state.userInfo);
   const colorScheme = useColorScheme();
   const styles = createStyles(colorScheme ?? "light");
@@ -79,11 +82,11 @@ const SettingsScreen = () => {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () =>
-        accessToken && cardEnabled ? (
+        isSignedIn && cardEnabled ? (
           <BusinessCardHeaderButton onPress={() => setCardVisible(true)} />
         ) : null,
     });
-  }, [navigation, accessToken, cardEnabled]);
+  }, [navigation, isSignedIn, cardEnabled]);
 
   const isSuperAppDeveloper = useMemo(() => {
     if (!accessToken || !SUPER_APP_DEVELOPER_GROUP) return false;
@@ -111,7 +114,7 @@ const SettingsScreen = () => {
 
   useEffect(() => {
     if (accessToken && !userInfo) {
-      dispatch(getUserInfo(logout));
+      dispatch(getUserInfo());
 
       try {
         const decoded = jwtDecode<DecodedAccessToken>(accessToken);
@@ -141,7 +144,7 @@ const SettingsScreen = () => {
           style: "destructive",
           onPress: async () => {
             await dispatch(disableFCMToken());
-            await dispatch(performLogout());
+            await dispatch(endSession("signedOut"));
           },
         },
       ]
@@ -149,21 +152,15 @@ const SettingsScreen = () => {
   }, [dispatch]);
 
   /**
-   * Dev-only: fires the same onLogout callback that refreshAccessToken()/
-   * apiRequest() invoke when a refresh-token exchange comes back 400, or an
-   * API call still 401's after a refresh retry (see services/authService.ts,
-   * utils/requestHandler.ts). Lets us verify the silent-logout UI reacts
-   * correctly without waiting for a real token to expire.
+   * Dev-only: reports the same signal tokenRefresh emits when the server rejects
+   * the refresh token with invalid_grant, so the expired-session path can be
+   * checked without waiting for a real token to die.
    */
-  const handleSimulateSilentLogout = useCallback(async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error("Error simulating silent logout:", error);
-    }
+  const handleSimulateSilentLogout = useCallback(() => {
+    authEmitter.emit(Event.AuthSession, { status: "expired" });
   }, []);
 
-  if (!accessToken) {
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>
@@ -243,7 +240,7 @@ const SettingsScreen = () => {
             onPress={handleSimulateSilentLogout}
           >
             <Text style={styles.debugLogoutText}>
-              DEV: Simulate Silent Logout (401)
+              DEV: Simulate Silent Logout (invalid_grant)
             </Text>
           </TouchableOpacity>
         )}

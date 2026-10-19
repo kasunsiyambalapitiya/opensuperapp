@@ -29,3 +29,29 @@ export interface AuthData {
   userId?: string;
   expiresAt: number;
 }
+
+/**
+ * Where the session stands, as opposed to which tokens Redux happens to hold.
+ *
+ * - restoring: cold start, stored tokens not read yet.
+ * - authenticated: tokens are usable.
+ * - refreshing: a token refresh is in flight.
+ * - degraded: a refresh ran out of attempts without a verdict (no network, a 5xx).
+ *   Nothing is destroyed and the next good refresh makes it authenticated again.
+ * - expired: the server rejected the refresh token; the user has to sign in again.
+ * - signedOut: never signed in, or the user signed out.
+ */
+export type SessionStatus =
+  | "restoring"
+  | "authenticated"
+  | "refreshing"
+  | "degraded"
+  | "expired"
+  | "signedOut";
+
+/** What a token refresh reports about the session, on `authEmitter`. */
+export type SessionSignal =
+  | { status: "refreshing" }
+  | { status: "authenticated"; authData: AuthData }
+  | { status: "degraded" }
+  | { status: "expired" };

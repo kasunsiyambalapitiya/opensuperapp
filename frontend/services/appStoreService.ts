@@ -67,8 +67,7 @@ const ensureDirectoryExists = (directory: Directory): void => {
 export const downloadMicroApp = async (
   dispatch: AppDispatch,
   appId: string,
-  downloadUrl: string | null,
-  onLogout: () => Promise<void>
+  downloadUrl: string | null
 ): Promise<boolean> => {
   try {
     dispatch(addDownloading(appId)); // Downloading status for indicator
@@ -90,7 +89,7 @@ export const downloadMicroApp = async (
     // A rejected write reports itself by returning false, not by throwing, and
     // has already rolled the list back — so flipping the status here would
     // leave an installed app the sync effect immediately uninstalls.
-    const entitled = await UpdateUserConfiguration(appId, DOWNLOADED, onLogout); // Update user configurations
+    const entitled = await UpdateUserConfiguration(appId, DOWNLOADED); // Update user configurations
     if (!entitled) {
       throw new Error("Failed to update user configuration.");
     }
@@ -108,7 +107,7 @@ export const downloadMicroApp = async (
 
     return true;
   } catch (error) {
-    await UpdateUserConfiguration(appId, NOT_DOWNLOADED, onLogout); // Update user configurations
+    await UpdateUserConfiguration(appId, NOT_DOWNLOADED); // Update user configurations
     Alert.alert("Error", "Failed to download or save the file.");
     return false;
   } finally {
@@ -247,11 +246,7 @@ const getMicroAppConfig = async (extractedDir: Directory) => {
   }
 };
 
-export const removeMicroApp = async (
-  dispatch: AppDispatch,
-  appId: string,
-  onLogout: () => Promise<void>
-) => {
+export const removeMicroApp = async (dispatch: AppDispatch, appId: string) => {
   try {
     // Marks the app busy for the whole removal. The My Apps screen reconciles
     // disk against the user's app list, and every intermediate state here looks
@@ -268,11 +263,7 @@ export const removeMicroApp = async (
     // A rejected write returns false rather than throwing and rolls the list
     // back, so the app stays entitled. Deleting the files anyway is what makes
     // the sync effect download it again.
-    const unentitled = await UpdateUserConfiguration(
-      appId,
-      NOT_DOWNLOADED,
-      onLogout
-    );
+    const unentitled = await UpdateUserConfiguration(appId, NOT_DOWNLOADED);
     if (!unentitled) {
       throw new Error("Failed to update user configuration.");
     }
@@ -308,13 +299,11 @@ const loadStoredApps = async (): Promise<MicroApp[]> => {
   return storedAppsJson ? JSON.parse(storedAppsJson) : [];
 };
 
-const fetchLatestApps = async (
-  onLogout: () => Promise<void>
-): Promise<MicroApp[]> => {
-  const response = await apiRequest(
-    { url: `${BASE_URL}/micro-apps`, method: "GET" },
-    onLogout
-  );
+const fetchLatestApps = async (): Promise<MicroApp[]> => {
+  const response = await apiRequest({
+    url: `${BASE_URL}/micro-apps`,
+    method: "GET",
+  });
   return response?.data || [];
 };
 
@@ -345,7 +334,6 @@ const mergeAppData = (latestApp: MicroApp, storedApp?: MicroApp): MicroApp => {
 // Load app list and if updates available update apps
 export const loadMicroAppDetails = async (
   dispatch: AppDispatch,
-  onLogout: () => Promise<void>,
   onUpdateStart?: (appId: string) => void,
   onUpdateEnd?: (appId: string) => void
 ) => {
@@ -360,7 +348,7 @@ export const loadMicroAppDetails = async (
     dispatch(setApps(storedApps));
 
     // Fetch latest micro apps list from API
-    const latestApps = await fetchLatestApps(onLogout);
+    const latestApps = await fetchLatestApps();
 
     if (latestApps.length > 0) {
       // Update apps list with status and webViewUri
@@ -375,8 +363,7 @@ export const loadMicroAppDetails = async (
           downloadMicroApp(
             dispatch,
             latestApp.appId,
-            latestApp.versions[0].downloadUrl,
-            onLogout
+            latestApp.versions[0].downloadUrl
           ).finally(() => {
             onUpdateEnd?.(latestApp.appId);
           });
@@ -393,7 +380,8 @@ export const loadMicroAppDetails = async (
       await persistAppsWithoutTokens(apps);
     }
   } catch (error) {
+    // The list already on screen came from disk and is still the user's. Clearing it is
+    // for the end of a session (endSession), not for a request that did not get through.
     console.error("Error loading micro apps:", error);
-    dispatch(setApps([]));
   }
 };

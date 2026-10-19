@@ -22,10 +22,7 @@ import dayjs from "dayjs";
 import { jwtDecode } from "jwt-decode";
 
 // General API request handler
-export const apiRequest = async (
-  config: AxiosRequestConfig,
-  onLogout: () => Promise<void>
-) => {
+export const apiRequest = async (config: AxiosRequestConfig) => {
   let accessToken = await getAccessToken(); // Get stored access token
 
   // If no access token, return early
@@ -33,10 +30,10 @@ export const apiRequest = async (
 
   // Check if token is expired before making request
   if (isAccessTokenExpired(accessToken)) {
-    const newAuthData = await refreshAccessToken(onLogout);
+    const newAuthData = await refreshAccessToken();
 
     if (!newAuthData?.accessToken) {
-      return; // Logout is triggered inside refreshAccessToken
+      return; // refreshAccessToken has already reported the session's state
     }
     accessToken = newAuthData.accessToken;
   }
@@ -77,7 +74,7 @@ export const apiRequest = async (
     }
 
     if (error.response?.status === 401) {
-      const newAuthData = await refreshAccessToken(onLogout);
+      const newAuthData = await refreshAccessToken();
       if (newAuthData?.accessToken) {
         // Retry the request with the new token
         config.headers.Authorization = `Bearer ${newAuthData.accessToken}`;

@@ -30,8 +30,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // Send downloaded appId to backend (user configurations)
 export const UpdateUserConfiguration = async (
   appId: string,
-  action: "downloaded" | "not-downloaded",
-  onLogout: () => Promise<void>
+  action: "downloaded" | "not-downloaded"
 ) => {
   try {
     type CachedUserConfig = Omit<UserConfig, "email">;
@@ -113,19 +112,16 @@ export const UpdateUserConfiguration = async (
       return false;
     }
 
-    const response = await apiRequest(
-      {
-        url: `${BASE_URL}/users/user-configs`,
-        method: "POST",
-        data: {
-          configKey: APP_LIST_CONFIG_KEY,
-          configValue: updatedConfigValue,
-          uuid: userId,
-          isActive: appUserConfigs.isActive,
-        },
+    const response = await apiRequest({
+      url: `${BASE_URL}/users/user-configs`,
+      method: "POST",
+      data: {
+        configKey: APP_LIST_CONFIG_KEY,
+        configValue: updatedConfigValue,
+        uuid: userId,
+        isActive: appUserConfigs.isActive,
       },
-      onLogout
-    );
+    });
 
     if (response?.status !== 201) {
       console.warn(

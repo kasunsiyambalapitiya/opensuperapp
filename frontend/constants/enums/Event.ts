@@ -15,6 +15,6 @@
 // under the License.
 export enum Event {
   QrScanned = "qr_scanned",
-  AuthLoggedOut = "auth_logged_out",
+  AuthSession = "auth_session",
   AuthReachability = "auth_reachability",
 }
