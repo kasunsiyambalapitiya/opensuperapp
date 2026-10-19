@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import SearchBar from "@/components/SearchBar";
+import SignInMessage from "@/components/SignInMessage";
 import SyncingModal from "@/components/SyncingModal";
 import Widget from "@/components/Widget";
 import { Colors } from "@/constants/Colors";
@@ -60,9 +61,9 @@ export default function HomeScreen() {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
+  const { userId, accessToken } = useSelector((state: RootState) => state.auth);
   const downloading = useSelector((state: RootState) => state.apps.downloading);
   const removing = useSelector((state: RootState) => state.apps.removing);
-  const { userId } = useSelector((state: RootState) => state.auth);
   const isForceUpdate = useSelector(
     (state: RootState) =>
       state.appConfig.configs.find(
@@ -295,6 +296,20 @@ export default function HomeScreen() {
     }
   }, [searchQuery, apps]);
 
+  if (!accessToken) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.signInContainer}>
+          <View style={styles.overlay}>
+            <View style={styles.modal}>
+              <SignInMessage message="To view your apps, please sign in" />
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView
       style={{
@@ -371,6 +386,28 @@ export default function HomeScreen() {
 
 const createStyles = (colorScheme: "light" | "dark") =>
   StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      justifyContent: "space-between",
+    },
+    signInContainer: {
+      flex: 1,
+      justifyContent: "space-between",
+    },
+    overlay: {
+      flex: 1,
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modal: {
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      padding: 30,
+      borderRadius: 16,
+      width: "90%",
+      alignItems: "center",
+    },
     searchContainer: {
       flexDirection: "row",
       alignItems: "center",
