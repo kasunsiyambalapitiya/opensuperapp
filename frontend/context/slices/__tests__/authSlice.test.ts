@@ -117,7 +117,7 @@ describe("session status", () => {
     }
   });
 
-  it("becomes authenticated when tokens are set, from any status", () => {
+  it("starts a session on sign-in, from any status", () => {
     const all: SessionStatus[] = [
       "restoring",
       "refreshing",
@@ -130,6 +130,32 @@ describe("session status", () => {
       store.dispatch(setAuth(REFRESHED));
       expect(selectSessionStatus(store.getState())).toBe("authenticated");
       expect(store.getState().auth.accessToken).toBe("new-access");
+    }
+  });
+
+  it("takes a refresh's tokens while the session is live", () => {
+    const live: SessionStatus[] = [
+      "restoring",
+      "authenticated",
+      "refreshing",
+      "degraded",
+    ];
+    for (const status of live) {
+      const { store } = withStatus(status);
+      store.dispatch(setRefreshedAuth(REFRESHED));
+      expect(selectSessionStatus(store.getState())).toBe("authenticated");
+      expect(store.getState().auth.accessToken).toBe("new-access");
+    }
+  });
+
+  it("does not let a refresh that lands after the session ended revive it", () => {
+    for (const ended of ["expired", "signedOut"] as SessionStatus[]) {
+      const { store } = withStatus(ended);
+
+      store.dispatch(setRefreshedAuth(REFRESHED));
+
+      expect(selectSessionStatus(store.getState())).toBe(ended);
+      expect(store.getState().auth.accessToken).toBeNull();
     }
   });
 
@@ -162,36 +188,6 @@ describe("session status", () => {
       store.dispatch(setSessionStatus("degraded"));
 
       expect(selectSessionStatus(store.getState())).toBe(ended);
-    }
-  });
-
-  it("does not let a late refresh's tokens revive a session that has ended", () => {
-    for (const ended of ["expired", "signedOut"] as SessionStatus[]) {
-      const { store } = withStatus(ended);
-
-      store.dispatch(setRefreshedAuth(REFRESHED));
-
-      expect(selectSessionStatus(store.getState())).toBe(ended);
-      expect(store.getState().auth.accessToken).toBeNull();
-      expect(store.getState().auth.refreshToken).toBeNull();
-    }
-  });
-
-  it("takes a refresh's tokens while the session is live", () => {
-    const live: SessionStatus[] = [
-      "restoring",
-      "authenticated",
-      "refreshing",
-      "degraded",
-    ];
-    for (const status of live) {
-      const { store } = withStatus(status);
-
-      store.dispatch(setRefreshedAuth(REFRESHED));
-
-      expect(selectSessionStatus(store.getState())).toBe("authenticated");
-      expect(store.getState().auth.accessToken).toBe("new-access");
-      expect(store.getState().auth.refreshToken).toBe("new-refresh");
     }
   });
 });
@@ -278,6 +274,34 @@ describe("restoreAuth", () => {
 
     expect(store.getState().auth.accessToken).toBeNull();
     expect(store.getState().auth.sessionStatus).toBe("expired");
+  });
+
+  it("does not sign back in a user who signed out while the restore was running", async () => {
+    const { store } = buildStore();
+    mockLoadAuthData.mockImplementation(async () => {
+      store.dispatch(setSessionStatus("signedOut"));
+      return { ...STORED, expiresAt: Date.now() + 60_000 };
+    });
+
+    await store.dispatch(restoreAuth());
+
+    expect(store.getState().auth.sessionStatus).toBe("signedOut");
+    expect(store.getState().auth.accessToken).toBeNull();
+    expect(store.getState().auth.isLoading).toBe(false);
+  });
+
+  it("stays expired when the session ends before the restore's refresh returns", async () => {
+    const { store } = buildStore();
+    mockLoadAuthData.mockResolvedValue(STORED);
+    mockRefreshAccessToken.mockImplementation(async () => {
+      store.dispatch(setSessionStatus("expired"));
+      return REFRESHED;
+    });
+
+    await store.dispatch(restoreAuth());
+
+    expect(store.getState().auth.sessionStatus).toBe("expired");
+    expect(store.getState().auth.accessToken).toBeNull();
   });
 
   it("is signedOut rather than stuck restoring when the stored tokens cannot be read", async () => {

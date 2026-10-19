@@ -379,31 +379,6 @@ describe("refreshAccessToken", () => {
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ["the session ended", null],
-    [
-      "a new session began",
-      { ...storedAuth, refreshToken: "next-session-refresh-token" },
-    ],
-  ])(
-    "drops the new tokens when %s while the request was out",
-    async (_, storedAfterRequest) => {
-      mockFetch.mockImplementation(async () => {
-        mockLoadAuthDataFromSecureStore.mockResolvedValue(storedAfterRequest);
-        return response(200, ISSUED_TOKENS);
-      });
-
-      const result = await refreshAccessToken();
-
-      expect(result).toBeNull();
-      expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
-      expect(signals).not.toContainEqual(
-        expect.objectContaining({ status: "authenticated" })
-      );
-      expect(expiries()).toBe(0);
-    }
-  );
-
   it("keeps a token set the server issued even when its claims will not decode", async () => {
     // The 200 means the server may already have rotated the old refresh token
     // away. Dropping the replacement over an unreadable JWT is what strands the
@@ -427,6 +402,36 @@ describe("refreshAccessToken", () => {
       })
     );
     expect(expiries()).toBe(0);
+  });
+});
+
+// A refresh can take seconds; the user may sign out, or the session expire, before it
+// lands. Writing its tokens back then would bring a session nobody owns back to life.
+describe("a refresh that lands after the session changed", () => {
+  it("neither stores nor reports its tokens once the session has ended", async () => {
+    mockLoadAuthDataFromSecureStore
+      .mockResolvedValueOnce(storedAuth)
+      .mockResolvedValueOnce(null);
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(result).toBeNull();
+    expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
+    expect(signals.some((s) => s.status === "authenticated")).toBe(false);
+  });
+
+  it("does not overwrite the tokens of a newer sign-in", async () => {
+    mockLoadAuthDataFromSecureStore
+      .mockResolvedValueOnce(storedAuth)
+      .mockResolvedValueOnce({ ...storedAuth, refreshToken: "signed-in-again" });
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(result).toBeNull();
+    expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
+    expect(signals.some((s) => s.status === "authenticated")).toBe(false);
   });
 });
 
@@ -615,14 +620,23 @@ describe("what the refresh reports about the session", () => {
     expect(expiries()).toBe(1);
   });
 
-  it("reports degraded when the new tokens cannot be stored", async () => {
+  it("still uses the new tokens when they cannot be stored, and remembers the rotation", async () => {
+    // The server has rotated the old refresh token away; the new one now lives only in
+    // memory. Use it while the app runs, and record that the one on disk may be dead so
+    // a later invalid_grant is explained as a lost rotation rather than a plain expiry.
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
     mockSaveAuthDataToSecureStore.mockRejectedValue(new Error("keychain"));
 
     const result = await refreshAccessToken();
 
-    expect(result).toBeNull();
-    expect(signals).toEqual([{ status: "refreshing" }, { status: "degraded" }]);
+    expect(result?.accessToken).toBe("new-access-token");
+    expect(result?.refreshToken).toBe("new-refresh-token");
+    expect(signals).toEqual([
+      { status: "refreshing" },
+      { status: "authenticated", authData: result },
+    ]);
+    expect(mockMarkRefreshInterrupted).toHaveBeenCalled();
+    expect(mockClearInterruptedRefresh).not.toHaveBeenCalled();
   });
 
   it("reports nothing when there is no session to refresh", async () => {

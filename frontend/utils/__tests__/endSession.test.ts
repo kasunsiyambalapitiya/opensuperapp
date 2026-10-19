@@ -25,6 +25,7 @@ import {
 } from "@/utils/authTokenStore";
 import { endSession } from "@/utils/endSession";
 import { clearAllExchangedTokens } from "@/utils/exchangedTokenStore";
+import { clearInterruptedRefresh } from "@/utils/rotationGuard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { configureStore, UnknownAction } from "@reduxjs/toolkit";
 import { deleteItemAsync } from "expo-secure-store";
@@ -49,6 +50,9 @@ jest.mock("@/utils/authTokenStore", () => ({
 }));
 jest.mock("@/utils/exchangedTokenStore", () => ({
   clearAllExchangedTokens: jest.fn(),
+}));
+jest.mock("@/utils/rotationGuard", () => ({
+  clearInterruptedRefresh: jest.fn(),
 }));
 jest.mock("@/services/scheduledNotifications", () => ({
   clearNotifications: jest.fn(),
@@ -121,6 +125,8 @@ const localSteps = () => [
   deleteItemAsync as jest.Mock,
   mockPurge,
   clearNotifications as jest.Mock,
+  // A lost rotation explains the end of this session, not the next one's.
+  clearInterruptedRefresh as jest.Mock,
 ];
 
 beforeEach(async () => {

@@ -261,8 +261,17 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
       const current = await loadAuthDataFromSecureStore();
       if (current?.refreshToken !== storedData.refreshToken) return null;
 
-      await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
-      await clearInterruptedRefresh();
+      try {
+        await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
+        await clearInterruptedRefresh();
+      } catch (err) {
+        // The server has already rotated the stored refresh token away, so the new set
+        // lives only in memory: it is still handed to the caller and to Redux. When the
+        // dead token on disk is tried later, its invalid_grant is a lost rotation, not
+        // an ordinary expiry.
+        console.error("Token refresh: issued tokens could not be stored", err);
+        await markRefreshInterrupted();
+      }
 
       authEmitter.emit(Event.AuthSession, {
         status: "authenticated",
@@ -270,8 +279,8 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
       });
       return updatedAuthData;
     } catch (err: unknown) {
-      // Only reachable from the local steps around the request - reading the store,
-      // writing it back - none of which are the server's verdict on the session.
+      // Only reachable from reading the store around the request, which is not the
+      // server's verdict on the session.
       console.error(
         "Token refresh error:",
         err instanceof Error ? err.message : err

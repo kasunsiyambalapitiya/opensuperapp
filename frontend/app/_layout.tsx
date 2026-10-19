@@ -18,12 +18,7 @@ import OfflineBanner from "@/components/OfflineBanner";
 import SessionExpiredPrompt from "@/components/SessionExpiredPrompt";
 import CloseButton from "@/components/headers/CloseButton";
 import SplashModal from "@/components/SplashModal";
-import { APPS, isAndroid, NOTIFICATIONS_QUERY_KEY, USER_INFO } from "@/constants/Constants";
-import { setApps } from "@/context/slices/appSlice";
-import { restoreAuth } from "@/context/slices/authSlice";
-import { getUserConfigurations } from "@/context/slices/userConfigSlice";
-import { setUserInfo } from "@/context/slices/userInfoSlice";
-import { getVersions } from "@/context/slices/versionSlice";
+import { isAndroid, NOTIFICATIONS_QUERY_KEY } from "@/constants/Constants";
 import { AppDispatch, persistor, store } from "@/context/store";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
@@ -31,19 +26,16 @@ import { useOfflineQueueReplay } from "@/hooks/useOfflineQueueReplay";
 import { useProactiveTokenRefresh } from "@/hooks/useProactiveTokenRefresh";
 import { usePushNotificationHandler } from "@/hooks/usePushNotificationHandler";
 import { useSessionListener } from "@/hooks/useSessionListener";
-import { runMigrations } from "@/migrations/migrator";
 import {
   onRemoteConfigChange,
   initializeRemoteConfig,
 } from "@/services/remoteConfig";
-import { buildAppsWithTokens } from "@/utils/exchangedTokenRehydrator";
-import { handleFreshInstall } from "@/utils/freshInstall";
+import { initializeApp } from "@/utils/initializeApp";
 import {
   initializeNotifications,
   setupBackgroundNotificationListeners,
   setupMessagingListener,
 } from "@/utils/push-notification";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DarkTheme,
   DefaultTheme,
@@ -53,7 +45,6 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { lockAsync, OrientationLock } from "expo-screen-orientation";
-import { getItemAsync } from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -95,30 +86,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
   useEffect(() => {
     const initialize = async () => {
-      try {
-        await handleFreshInstall();
-        await runMigrations(); // Runs any migrations.
-        const [savedApps, savedUserInfo] = await Promise.all([
-          AsyncStorage.getItem(APPS),
-          getItemAsync(USER_INFO),
-        ]);
-
-        if (savedApps) {
-          dispatch(setApps(await buildAppsWithTokens(JSON.parse(savedApps))));
-        }
-
-        if (savedUserInfo) {
-          dispatch(setUserInfo(JSON.parse(savedUserInfo)));
-        }
-
-        dispatch(getVersions());
-        dispatch(getUserConfigurations());
-        await dispatch(restoreAuth()).unwrap();
-      } catch (error) {
-        console.error("Initialization error:", error);
-      } finally {
-        onReady();
-      }
+      await initializeApp(dispatch);
+      onReady();
     };
 
     initialize();

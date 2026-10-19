@@ -36,6 +36,7 @@ import {
   loadAuthDataFromSecureStore,
 } from "@/utils/authTokenStore";
 import { clearAllExchangedTokens } from "@/utils/exchangedTokenStore";
+import { clearInterruptedRefresh } from "@/utils/rotationGuard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import { router } from "expo-router";
@@ -98,6 +99,8 @@ export const endSession = createAsyncThunk<
       ["clearing user info", () => deleteItemAsync(USER_INFO)],
       ["purging persisted state", () => persistor.purge()],
       ["clearing notifications", clearNotifications],
+      // Left behind, it would explain the next session's expiry as a lost rotation.
+      ["clearing the interrupted-refresh marker", clearInterruptedRefresh],
       [
         "clearing the last sent FCM token",
         () => dispatch(clearLastSentFcmToken()),
