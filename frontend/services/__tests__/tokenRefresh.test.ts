@@ -398,6 +398,31 @@ describe("refreshAccessToken", () => {
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["the session ended", null],
+    [
+      "a new session began",
+      { ...storedAuth, refreshToken: "next-session-refresh-token" },
+    ],
+  ])(
+    "drops the new tokens when %s while the request was out",
+    async (_, storedAfterRequest) => {
+      mockFetch.mockImplementation(async () => {
+        mockLoadAuthDataFromSecureStore.mockResolvedValue(storedAfterRequest);
+        return response(200, ISSUED_TOKENS);
+      });
+
+      const result = await refreshAccessToken();
+
+      expect(result).toBeNull();
+      expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
+      expect(signals).not.toContainEqual(
+        expect.objectContaining({ status: "authenticated" })
+      );
+      expect(expiries()).toBe(0);
+    }
+  );
+
   it("keeps a token set the server issued even when its claims will not decode", async () => {
     // The 200 means the server may already have rotated the old refresh token
     // away. Dropping the replacement over an unreadable JWT is what strands the

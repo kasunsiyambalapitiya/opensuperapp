@@ -37,6 +37,9 @@ jest.mock("@/context/slices/appSlice", () => ({
   }),
 }));
 
+jest.mock("@/context/slices/authSlice", () => ({
+  selectIsSignedIn: jest.fn(() => true),
+}));
 jest.mock("@/context/store", () => ({
   store: { getState: () => ({ auth: { userId: "user-1" } }) },
 }));

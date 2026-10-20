@@ -33,8 +33,9 @@ jest.mock("@/constants/Constants", () => ({
   NOT_DOWNLOADED: "not-downloaded",
 }));
 jest.mock("@/utils/requestHandler", () => ({ apiRequest: jest.fn() }));
+let mockAuth: { userId: string | null; sessionStatus: string };
 jest.mock("@/context/store", () => ({
-  store: { getState: () => ({ auth: { userId: "user-1" } }) },
+  store: { getState: () => ({ auth: mockAuth }) },
 }));
 jest.mock("@/context/slices/appSlice", () => ({
   setApps: (payload: unknown) => ({ type: "apps/setApps", payload }),
@@ -67,6 +68,7 @@ const setAppsPayloads = (dispatch: jest.Mock) =>
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockAuth = { userId: "user-1", sessionStatus: "authenticated" };
   await AsyncStorage.clear();
   await AsyncStorage.setItem("apps", JSON.stringify(STORED_APPS));
   jest.spyOn(console, "error").mockImplementation(() => {});
@@ -93,5 +95,28 @@ describe("loadMicroAppDetails", () => {
     await loadMicroAppDetails(dispatch);
 
     expect(setAppsPayloads(dispatch)).toEqual([STORED_APPS]);
+  });
+
+  // A session restored offline is signed in with Redux auth cleared, userId included.
+  it("loads for a session restored offline, with no user in Redux", async () => {
+    mockAuth = { userId: null, sessionStatus: "degraded" };
+    const latest = [{ ...STORED_APPS[0], versions: [] }];
+    (apiRequest as jest.Mock).mockResolvedValue({ data: latest });
+    const dispatch = jest.fn();
+
+    await loadMicroAppDetails(dispatch);
+
+    expect(apiRequest).toHaveBeenCalled();
+    expect(setAppsPayloads(dispatch)).toHaveLength(2);
+  });
+
+  it("puts nothing on screen once the session has ended", async () => {
+    mockAuth = { userId: "user-1", sessionStatus: "signedOut" };
+    const dispatch = jest.fn();
+
+    await loadMicroAppDetails(dispatch);
+
+    expect(apiRequest).not.toHaveBeenCalled();
+    expect(setAppsPayloads(dispatch)).toEqual([]);
   });
 });

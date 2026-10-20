@@ -23,7 +23,10 @@ import { act, create } from "react-test-renderer";
 // Stubs mirroring the real action creators, so this suite is about which action
 // each signal becomes and not about the reducers (authSlice.test covers those).
 jest.mock("@/context/slices/authSlice", () => ({
-  setAuth: (payload: unknown) => ({ type: "auth/setAuth", payload }),
+  setRefreshedAuth: (payload: unknown) => ({
+    type: "auth/setRefreshedAuth",
+    payload,
+  }),
   setSessionStatus: (payload: unknown) => ({
     type: "auth/setSessionStatus",
     payload,
@@ -82,7 +85,7 @@ describe("useSessionListener", () => {
 
     expect(mockDispatch).toHaveBeenCalledTimes(1);
     expect(mockDispatch).toHaveBeenCalledWith({
-      type: "auth/setAuth",
+      type: "auth/setRefreshedAuth",
       payload: AUTH_DATA,
     });
   });

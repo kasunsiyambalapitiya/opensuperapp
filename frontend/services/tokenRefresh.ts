@@ -280,6 +280,11 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
         ...readIssuedClaims(data),
       };
 
+      // The session may have ended, or a new one begun, while the request was out.
+      // Saving now would put a dead session back on disk and in Redux.
+      const current = await loadAuthDataFromSecureStore();
+      if (current?.refreshToken !== storedData.refreshToken) return null;
+
       await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
       await clearInterruptedRefresh();
 

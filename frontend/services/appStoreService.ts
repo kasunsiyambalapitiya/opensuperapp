@@ -31,6 +31,7 @@ import {
   updateAppStatus,
   updateDownloadProgress,
 } from "@/context/slices/appSlice";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { AppDispatch, store } from "@/context/store";
 import { buildAppsWithTokens } from "@/utils/exchangedTokenRehydrator";
 import { persistAppsWithoutTokens } from "@/utils/exchangedTokenStore";
@@ -341,8 +342,9 @@ export const loadMicroAppDetails = async (
     // Load stored apps from AsyncStorage
     const storedApps = await loadStoredApps();
 
-    // Abort if the user logged out during the async operation
-    if (!store.getState().auth.userId) return;
+    // Abort if the session ended during the async operation. On the session, not
+    // userId: a session restored offline is signed in with Redux auth cleared.
+    if (!selectIsSignedIn(store.getState())) return;
 
     // Dispatch stored apps initially
     dispatch(setApps(storedApps));
@@ -372,8 +374,8 @@ export const loadMicroAppDetails = async (
         return mergeAppData(latestApp, storedApp);
       });
 
-      // Abort if the user logged out during the API fetch
-      if (!store.getState().auth.userId) return;
+      // Abort if the session ended during the API fetch
+      if (!selectIsSignedIn(store.getState())) return;
 
       // Update Redux and AsyncStorage
       dispatch(setApps(await buildAppsWithTokens(apps)));

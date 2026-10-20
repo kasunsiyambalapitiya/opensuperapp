@@ -20,6 +20,7 @@ import authReducer, {
   selectSessionStatus,
   SessionStatus,
   setAuth,
+  setRefreshedAuth,
   setSessionStatus,
 } from "@/context/slices/authSlice";
 import { AuthData } from "@/types/auth.types";
@@ -161,6 +162,36 @@ describe("session status", () => {
       store.dispatch(setSessionStatus("degraded"));
 
       expect(selectSessionStatus(store.getState())).toBe(ended);
+    }
+  });
+
+  it("does not let a late refresh's tokens revive a session that has ended", () => {
+    for (const ended of ["expired", "signedOut"] as SessionStatus[]) {
+      const { store } = withStatus(ended);
+
+      store.dispatch(setRefreshedAuth(REFRESHED));
+
+      expect(selectSessionStatus(store.getState())).toBe(ended);
+      expect(store.getState().auth.accessToken).toBeNull();
+      expect(store.getState().auth.refreshToken).toBeNull();
+    }
+  });
+
+  it("takes a refresh's tokens while the session is live", () => {
+    const live: SessionStatus[] = [
+      "restoring",
+      "authenticated",
+      "refreshing",
+      "degraded",
+    ];
+    for (const status of live) {
+      const { store } = withStatus(status);
+
+      store.dispatch(setRefreshedAuth(REFRESHED));
+
+      expect(selectSessionStatus(store.getState())).toBe("authenticated");
+      expect(store.getState().auth.accessToken).toBe("new-access");
+      expect(store.getState().auth.refreshToken).toBe("new-refresh");
     }
   });
 });

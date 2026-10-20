@@ -14,7 +14,10 @@
 // specific language governing permissions and limitations
 // under the License.
 import { Event } from "@/constants/enums/Event";
-import { setAuth, setSessionStatus } from "@/context/slices/authSlice";
+import {
+  setRefreshedAuth,
+  setSessionStatus,
+} from "@/context/slices/authSlice";
 import { AppDispatch } from "@/context/store";
 import { endSession } from "@/utils/endSession";
 import { authEmitter } from "@/utils/eventEmitter";
@@ -34,7 +37,7 @@ export const useSessionListener = () => {
       authEmitter.on(Event.AuthSession, (signal) => {
         switch (signal.status) {
           case "authenticated":
-            dispatch(setAuth(signal.authData));
+            dispatch(setRefreshedAuth(signal.authData));
             return;
           case "expired":
             dispatch(endSession("expired"));

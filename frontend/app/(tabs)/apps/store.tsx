@@ -50,7 +50,6 @@ const Store = () => {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const { accessToken } = useSelector((state: RootState) => state.auth);
   const isSignedIn = useSelector(selectIsSignedIn);
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
@@ -83,7 +82,9 @@ const Store = () => {
   // load micro apps list
   useEffect(() => {
     const initializeApps = async () => {
-      if (!accessToken) return;
+      // Not on accessToken: a session restored offline has none in Redux, and
+      // apiRequest takes the token from SecureStore, refreshing it if it has to.
+      if (!isSignedIn) return;
 
       setIsLoading(true);
       try {
@@ -96,7 +97,7 @@ const Store = () => {
     };
 
     initializeApps();
-  }, [dispatch, accessToken]);
+  }, [dispatch, isSignedIn]);
 
   const handleRemoveMicroApp = async (dispatch: AppDispatch, appId: string) => {
     // A background version update can be writing the same files; removing
@@ -229,7 +230,7 @@ const Store = () => {
       />
 
       <SignInModal visible={showModal} onClose={() => setShowModal(false)} />
-      {isLoading ? (
+      {isLoading && apps.length === 0 ? (
         <View
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
         >

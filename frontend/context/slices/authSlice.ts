@@ -59,6 +59,16 @@ const clearTokens = (state: AuthState) => {
   state.userId = null;
 };
 
+const setAuthenticated = (state: AuthState, authData: AuthData) => {
+  state.accessToken = authData.accessToken;
+  state.refreshToken = authData.refreshToken;
+  state.idToken = authData.idToken;
+  state.email = authData.email;
+  state.userId = authData.userId;
+  state.isLoading = false;
+  state.sessionStatus = "authenticated";
+};
+
 // Async action to restore persisted auth state
 export const restoreAuth = createAsyncThunk(
   "auth/restoreAuth",
@@ -114,14 +124,17 @@ const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    setAuth: (state, action) => {
-      state.accessToken = action.payload.accessToken;
-      state.refreshToken = action.payload.refreshToken;
-      state.idToken = action.payload.idToken;
-      state.email = action.payload.email;
-      state.userId = action.payload.userId;
-      state.isLoading = false;
-      state.sessionStatus = "authenticated";
+    /** A sign-in: starts a session whatever state the last one was left in. */
+    setAuth: (state, action: PayloadAction<AuthData>) => {
+      setAuthenticated(state, action.payload);
+    },
+    /**
+     * A refresh's new tokens. A refresh still in flight when the session ended must not
+     * bring it back; only a sign-in (setAuth) starts a new one.
+     */
+    setRefreshedAuth: (state, action: PayloadAction<AuthData>) => {
+      if (ENDED_STATUSES.includes(state.sessionStatus)) return;
+      setAuthenticated(state, action.payload);
     },
     setSessionStatus: (state, action: PayloadAction<SessionStatus>) => {
       // Only a sign-in (setAuth) starts a new session. A refresh still in flight when
@@ -181,5 +194,10 @@ export const selectIsSignedIn = (state: StateWithAuth) =>
 export const selectHasSessionEnded = (state: StateWithAuth) =>
   ENDED_STATUSES.includes(state.auth.sessionStatus);
 
-export const { setAuth, setSessionStatus, resetAll } = authSlice.actions;
+export const {
+  setAuth,
+  setRefreshedAuth,
+  setSessionStatus,
+  resetAll,
+} = authSlice.actions;
 export default authSlice.reducer;
