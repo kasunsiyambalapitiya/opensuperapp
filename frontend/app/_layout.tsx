@@ -27,6 +27,7 @@ import { AppDispatch, persistor, store } from "@/context/store";
 import { useAuthLogoutListener } from "@/hooks/useAuthLogoutListener";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
+import { useOfflineQueueReplay } from "@/hooks/useOfflineQueueReplay";
 import { usePushNotificationHandler } from "@/hooks/usePushNotificationHandler";
 import { runMigrations } from "@/migrations/migrator";
 import {
@@ -74,6 +75,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
   useNotificationNavigation();
 
   useAuthLogoutListener();
+
+  useOfflineQueueReplay();
 
   const queryClient = useQueryClient();
 

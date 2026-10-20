@@ -40,6 +40,7 @@ import {
   markRefreshInterrupted,
   readInterruptedRefresh,
 } from "@/utils/rotationGuard";
+import { waitForOnline } from "@/utils/connectivity";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { jwtDecode } from "jwt-decode";
 import { Alert } from "react-native";
@@ -50,6 +51,9 @@ const MILLISECONDS_IN_A_SECOND = 1000;
 // A half-dead connection can leave a fetch hanging until the OS gives up, which on mobile
 // can be minutes, and every screen that wants a token waits behind `refreshPromise`.
 const TOKEN_REFRESH_TIMEOUT_MS = 15000;
+// Attempts wait out an offline stretch rather than fail against a dead radio, but every
+// screen that wants a token waits behind the same refresh, so each wait is bounded.
+const OFFLINE_WAIT_TIMEOUT_MS = 30000;
 const SESSION_ALERT_COOLDOWN_MS = 30000;
 
 let refreshPromise: Promise<AuthData | null> | null = null;
@@ -183,6 +187,18 @@ const readIssuedClaims = (
   }
 };
 
+// Rejects with an AbortError, which classifies as a timeout: retried no further, and never
+// a reason to end the session.
+const waitForOnlineWithinBound = async (): Promise<void> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OFFLINE_WAIT_TIMEOUT_MS);
+  try {
+    await waitForOnline(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 // Whether a refresh that ran out of attempts ends the session, and what the user is told.
 const handleRefreshFailure = async (
   err: unknown,
@@ -247,7 +263,10 @@ export const refreshAccessToken = async (
       try {
         data = await retryWithBackoff(
           () => postRefreshToken(storedData.refreshToken),
-          { shouldRetry: shouldRetryRefresh }
+          {
+            shouldRetry: shouldRetryRefresh,
+            waitUntilOnline: waitForOnlineWithinBound,
+          }
         );
       } catch (err) {
         return await handleRefreshFailure(err, onLogout);

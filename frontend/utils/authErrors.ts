@@ -136,6 +136,9 @@ const defaultShouldRetry = (err: unknown): boolean =>
  * Run `fn(1)`, `fn(2)`, ... until it resolves or the attempts run out, sleeping
  * `baseDelayMs * factor ** (attempt - 1)` plus up to `jitterMs` between tries.
  * Rethrows the last error.
+ *
+ * With `waitUntilOnline`, each attempt first waits for it, so time spent offline costs no
+ * attempts. If it rejects, that error is thrown as is and no further attempt is made.
  */
 export function retryWithBackoff<T>(
   fn: (attempt: number) => Promise<T>,
@@ -147,6 +150,7 @@ export function retryWithBackoff<T>(
     shouldRetry?: (err: unknown, attempt: number) => boolean;
     sleep?: (ms: number) => Promise<void>; // injectable for tests
     random?: () => number; // injectable for tests
+    waitUntilOnline?: () => Promise<void>;
   }
 ): Promise<T> {
   const {
@@ -157,12 +161,14 @@ export function retryWithBackoff<T>(
     shouldRetry = defaultShouldRetry,
     sleep = defaultSleep,
     random = Math.random,
+    waitUntilOnline,
   } = options ?? {};
 
   const run = async (): Promise<T> => {
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
+      await waitUntilOnline?.();
       try {
         return await fn(attempt);
       } catch (error) {

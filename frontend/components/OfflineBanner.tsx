@@ -15,13 +15,23 @@
 // under the License.
 import { Colors } from "@/constants/Colors";
 import { Event } from "@/constants/enums/Event";
+import { useIsOnline } from "@/hooks/useIsOnline";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, useColorScheme, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Platform,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+const MESSAGE = "No connection. Some things may not be up to date.";
+
 /**
- * Tells the user the backend is out of reach right now.
+ * Tells the user the device is offline, or the backend is out of reach right now.
  *
  * Mounted once at the root, over every route. It reports a failing network and
  * nothing else — the session is still valid, so the copy must not read as a
@@ -31,7 +41,9 @@ const OfflineBanner = () => {
   const colorScheme = useColorScheme() ?? "light";
   const styles = createStyles(colorScheme);
   const insets = useSafeAreaInsets();
+  const online = useIsOnline();
   const [unreachable, setUnreachable] = useState(false);
+  const visible = !online || unreachable;
 
   useEffect(
     () =>
@@ -41,7 +53,22 @@ const OfflineBanner = () => {
     []
   );
 
-  if (!unreachable) {
+  // A failure seen before a reconnect says nothing about the connection after it. Without
+  // this the bar stays up until the next request happens to go out.
+  useEffect(() => {
+    if (online) {
+      setUnreachable(false);
+    }
+  }, [online]);
+
+  // accessibilityLiveRegion is Android only; VoiceOver has to be told.
+  useEffect(() => {
+    if (visible && Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibility(MESSAGE);
+    }
+  }, [visible]);
+
+  if (!visible) {
     return null;
   }
 
@@ -54,9 +81,7 @@ const OfflineBanner = () => {
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
     >
-      <Text style={styles.message}>
-        No connection. Some things may not be up to date.
-      </Text>
+      <Text style={styles.message}>{MESSAGE}</Text>
     </View>
   );
 };
