@@ -16,9 +16,8 @@
 import { Colors } from "@/constants/Colors";
 import { MY_APPS_TAB_NAME } from "@/constants/Constants";
 import { ScreenPaths } from "@/constants/ScreenPaths";
-import { RootState } from "@/context/store";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { useNotifications } from "@/hooks/useNotifications";
-import { logout } from "@/services/authService";
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
 import { useEffect, useRef } from "react";
@@ -33,8 +32,8 @@ import {
 import { useSelector } from "react-redux";
 
 export default function AppsStack() {
-  const { hasUnread } = useNotifications(logout);
-  const { accessToken } = useSelector((state: RootState) => state.auth);
+  const { hasUnread } = useNotifications();
+  const isSignedIn = useSelector(selectIsSignedIn);
   const colorScheme = useColorScheme() ?? "light";
 
   const shakeAnimation = useRef(new Animated.Value(0)).current;
@@ -68,7 +67,7 @@ export default function AppsStack() {
         Animated.delay(120),
         singleShake,
         Animated.delay(2200),
-      ]),
+      ])
     );
 
     loopAnimation.start();
@@ -105,7 +104,7 @@ export default function AppsStack() {
                 />
               </TouchableOpacity>
 
-              {accessToken ? (
+              {isSignedIn ? (
                 <TouchableOpacity
                   onPressIn={() => router.push(ScreenPaths.NOTIFICATIONS)}
                   hitSlop={20}

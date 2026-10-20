@@ -18,7 +18,6 @@ import { RootState } from "@/context/store";
 import { useTokenClaims } from "@/hooks/useTokenClaims";
 import { useWalletPassConfig } from "@/hooks/useWalletPassConfig";
 import { useWalletPassPresence } from "@/hooks/useWalletPassPresence";
-import { logout } from "@/services/authService";
 import { shareCardImage, shareVCard } from "@/services/businessCardService";
 import { saveBusinessCardPass } from "@/services/walletPassService";
 import { toBusinessCardData } from "@/utils/businessCard";
@@ -132,7 +131,7 @@ export const useBusinessCardActions = (visible: boolean) => {
     savingRef.current = true;
     setSaving(true);
     try {
-      const added = await saveBusinessCardPass(walletDownloadEnabled, logout);
+      const added = await saveBusinessCardPass(walletDownloadEnabled);
       if (added) {
         logAnalyticsEvent("wallet_pass_added");
         await markAdded();

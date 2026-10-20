@@ -45,12 +45,12 @@ const initialState: UserConfigState = {
 // Async function to fetch user configurations
 export const getUserConfigurations = createAsyncThunk(
   "userConfig/fetch",
-  async (onLogout: () => Promise<void>, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await apiRequest(
-        { url: `${BASE_URL}/users/user-configs`, method: "GET" },
-        onLogout
-      );
+      const response = await apiRequest({
+        url: `${BASE_URL}/users/user-configs`,
+        method: "GET",
+      });
 
       if (response?.status === 200 && response?.data) {
         // Remove duplicates from configValue arrays in response

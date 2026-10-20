@@ -24,11 +24,11 @@ import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { setUserInfo } from "@/context/slices/userInfoSlice";
 import { getVersions } from "@/context/slices/versionSlice";
 import { AppDispatch, persistor, store } from "@/context/store";
-import { useAuthLogoutListener } from "@/hooks/useAuthLogoutListener";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
 import { useOfflineQueueReplay } from "@/hooks/useOfflineQueueReplay";
 import { usePushNotificationHandler } from "@/hooks/usePushNotificationHandler";
+import { useSessionListener } from "@/hooks/useSessionListener";
 import { runMigrations } from "@/migrations/migrator";
 import {
   onRemoteConfigChange,
@@ -36,7 +36,6 @@ import {
 } from "@/services/remoteConfig";
 import { buildAppsWithTokens } from "@/utils/exchangedTokenRehydrator";
 import { handleFreshInstall } from "@/utils/freshInstall";
-import { performLogout } from "@/utils/performLogout";
 import {
   initializeNotifications,
   setupBackgroundNotificationListeners,
@@ -63,18 +62,16 @@ import { PersistGate } from "redux-persist/integration/react";
 // Component to handle app initialization
 function AppInitializer({ onReady }: { onReady: () => void }) {
   const dispatch = useDispatch<AppDispatch>(); // Ensure correct typing for async actions
-  const handleLogout = useCallback(async () => {
-    await dispatch(performLogout()).unwrap(); // Ensure the logout action is dispatched properly
-  }, [dispatch]);
+
+  // Before the initialization effect below, so the refreshes it starts are heard.
+  useSessionListener();
 
   /**
    * Handles push notification token lifecycle.
    */
-  usePushNotificationHandler({ onLogout: handleLogout });
+  usePushNotificationHandler();
 
   useNotificationNavigation();
-
-  useAuthLogoutListener();
 
   useOfflineQueueReplay();
 
@@ -110,8 +107,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
           dispatch(setUserInfo(JSON.parse(savedUserInfo)));
         }
 
-        dispatch(getVersions(handleLogout));
-        dispatch(getUserConfigurations(handleLogout));
+        dispatch(getVersions());
+        dispatch(getUserConfigurations());
         await dispatch(restoreAuth()).unwrap();
       } catch (error) {
         console.error("Initialization error:", error);

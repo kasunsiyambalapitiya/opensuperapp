@@ -41,7 +41,7 @@ import {
   readInterruptedRefresh,
 } from "@/utils/rotationGuard";
 import { waitForOnline } from "@/utils/connectivity";
-import { reachabilityEmitter } from "@/utils/eventEmitter";
+import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { jwtDecode } from "jwt-decode";
 import { Alert } from "react-native";
 
@@ -200,10 +200,7 @@ const waitForOnlineWithinBound = async (): Promise<void> => {
 };
 
 // Whether a refresh that ran out of attempts ends the session, and what the user is told.
-const handleRefreshFailure = async (
-  err: unknown,
-  onLogout: () => Promise<void>
-): Promise<null> => {
+const handleRefreshFailure = async (err: unknown): Promise<null> => {
   const kind =
     err instanceof AuthError ? err.kind : classifyAuthError({ error: err });
   console.error(
@@ -216,6 +213,7 @@ const handleRefreshFailure = async (
     if (kind === "network" || kind === "timeout") {
       reachabilityEmitter.emit(Event.AuthReachability, false);
     }
+    authEmitter.emit(Event.AuthSession, { status: "degraded" });
     return null;
   }
 
@@ -236,13 +234,11 @@ const handleRefreshFailure = async (
   }
 
   await clearInterruptedRefresh();
-  await onLogout();
+  authEmitter.emit(Event.AuthSession, { status: "expired" });
   return null;
 };
 
-export const refreshAccessToken = async (
-  onLogout: () => Promise<void>
-): Promise<AuthData | null> => {
+export const refreshAccessToken = async (): Promise<AuthData | null> => {
   if (refreshPromise) {
     return refreshPromise; // If a refresh is already in progress, return the same promise
   }
@@ -259,6 +255,7 @@ export const refreshAccessToken = async (
         return null;
       }
 
+      authEmitter.emit(Event.AuthSession, { status: "refreshing" });
       let data: IssuedTokens;
       try {
         data = await retryWithBackoff(
@@ -269,7 +266,7 @@ export const refreshAccessToken = async (
           }
         );
       } catch (err) {
-        return await handleRefreshFailure(err, onLogout);
+        return await handleRefreshFailure(err);
       }
 
       const updatedAuthData: AuthData = {
@@ -283,9 +280,18 @@ export const refreshAccessToken = async (
         ...readIssuedClaims(data),
       };
 
+      // The session may have ended, or a new one begun, while the request was out.
+      // Saving now would put a dead session back on disk and in Redux.
+      const current = await loadAuthDataFromSecureStore();
+      if (current?.refreshToken !== storedData.refreshToken) return null;
+
       await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
       await clearInterruptedRefresh();
 
+      authEmitter.emit(Event.AuthSession, {
+        status: "authenticated",
+        authData: updatedAuthData,
+      });
       return updatedAuthData;
     } catch (err: unknown) {
       // Only reachable from the local steps around the request - reading the store,
@@ -294,6 +300,7 @@ export const refreshAccessToken = async (
         "Token refresh error:",
         err instanceof Error ? err.message : err
       );
+      authEmitter.emit(Event.AuthSession, { status: "degraded" });
       return null;
     } finally {
       refreshPromise = null;

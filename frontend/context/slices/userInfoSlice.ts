@@ -40,15 +40,12 @@ const initialState: AppsState = {
 // Async function to fetch user info
 export const getUserInfo = createAsyncThunk(
   "userInfo/fetch",
-  async (onLogout: () => Promise<void>, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await apiRequest(
-        {
-          url: `${BASE_URL}/user-info`,
-          method: "GET",
-        },
-        onLogout
-      );
+      const response = await apiRequest({
+        url: `${BASE_URL}/user-info`,
+        method: "GET",
+      });
 
       if (response?.status === 200) return response.data;
       else return rejectWithValue("User info not found");

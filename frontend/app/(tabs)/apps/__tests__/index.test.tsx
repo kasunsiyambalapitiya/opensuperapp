@@ -21,14 +21,8 @@ jest.mock("@/services/appStoreService", () => ({
   downloadMicroApp: jest.fn(),
   removeMicroApp: jest.fn(),
 }));
-jest.mock("@/services/authService", () => ({
-  logout: jest.fn(),
-}));
 jest.mock("@/context/slices/userConfigSlice", () => ({
-  getUserConfigurations: (onLogout: unknown) => ({
-    type: "userConfig/mock",
-    payload: onLogout,
-  }),
+  getUserConfigurations: () => ({ type: "userConfig/mock" }),
 }));
 jest.mock("@react-navigation/bottom-tabs", () => ({
   ...jest.requireActual("@react-navigation/bottom-tabs"),
@@ -53,6 +47,7 @@ jest.mock("@expo/vector-icons", () => ({
 jest.mock("react-redux", () => require("react-redux/alternate-renderers"));
 
 import SignInMessage from "@/components/SignInMessage";
+import { SessionStatus } from "@/types/auth.types";
 import React from "react";
 import { FlatList } from "react-native";
 import { Provider } from "react-redux";
@@ -69,6 +64,7 @@ const baseState = {
     email: null,
     userId: null,
     isLoading: false,
+    sessionStatus: "signedOut" as SessionStatus,
   },
   appConfig: {
     configs: [],
@@ -81,14 +77,20 @@ const baseState = {
   userConfig: { configurations: [], loading: false },
 };
 
-const buildStore = (accessToken: string | null) =>
+const buildStore = (
+  sessionStatus: SessionStatus,
+  accessToken: string | null
+) =>
   createStore(() => ({
     ...baseState,
-    auth: { ...baseState.auth, accessToken },
+    auth: { ...baseState.auth, sessionStatus, accessToken },
   }));
 
-const renderHomeScreen = async (accessToken: string | null) => {
-  const store = buildStore(accessToken);
+const renderHomeScreen = async (
+  sessionStatus: SessionStatus,
+  accessToken: string | null = null
+) => {
+  const store = buildStore(sessionStatus, accessToken);
   let renderer: ReactTestRenderer;
 
   jest.useFakeTimers();
@@ -114,18 +116,40 @@ const renderHomeScreen = async (accessToken: string | null) => {
 // wrapper object, so findAllByType needs the unwrapped function to match.
 const signInMessageType = (SignInMessage as unknown as { type: unknown }).type;
 
+const expectSignInGate = (renderer: ReactTestRenderer) => {
+  expect(renderer.root.findAllByType(signInMessageType as never).length).toBe(1);
+  expect(renderer.root.findAllByType(FlatList).length).toBe(0);
+};
+
+const expectAppGrid = (renderer: ReactTestRenderer) => {
+  expect(renderer.root.findAllByType(FlatList).length).toBe(1);
+  expect(renderer.root.findAllByType(signInMessageType as never).length).toBe(0);
+};
+
 describe("HomeScreen auth gate", () => {
   it("shows SignInMessage and no app grid when signed out", async () => {
-    const renderer = await renderHomeScreen(null);
+    expectSignInGate(await renderHomeScreen("signedOut"));
+  });
 
-    expect(renderer.root.findAllByType(signInMessageType as never).length).toBe(1);
-    expect(renderer.root.findAllByType(FlatList).length).toBe(0);
+  it("shows SignInMessage and no app grid when the session has expired", async () => {
+    expectSignInGate(await renderHomeScreen("expired"));
   });
 
   it("shows the app grid and no SignInMessage when signed in", async () => {
-    const renderer = await renderHomeScreen("some-token");
+    expectAppGrid(await renderHomeScreen("authenticated", "some-token"));
+  });
 
-    expect(renderer.root.findAllByType(FlatList).length).toBe(1);
-    expect(renderer.root.findAllByType(signInMessageType as never).length).toBe(0);
+  it("keeps the app grid while a refresh is in flight", async () => {
+    expectAppGrid(await renderHomeScreen("refreshing", "some-token"));
+  });
+
+  it("keeps the app grid when the network is down, even with no token in Redux", async () => {
+    // A cold start without signal restores degraded with Redux auth cleared;
+    // the session is still there and the cached apps are still the user's.
+    expectAppGrid(await renderHomeScreen("degraded", null));
+  });
+
+  it("gates on the session, not on a token left behind in Redux", async () => {
+    expectSignInGate(await renderHomeScreen("expired", "stale-token"));
   });
 });

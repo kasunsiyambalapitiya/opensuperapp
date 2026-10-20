@@ -28,15 +28,12 @@ const initialState: AppConfigState = {
 
 export const getAppConfigurations = createAsyncThunk(
   "appConfig/getConfigurations",
-  async (onLogout: () => Promise<void>, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await apiRequest(
-        {
-          url: `${BASE_URL}/app-configs`,
-          method: "GET",
-        },
-        onLogout
-      );
+      const response = await apiRequest({
+        url: `${BASE_URL}/app-configs`,
+        method: "GET",
+      });
 
       if (response?.data) return response.data;
       else return rejectWithValue("App configs not found");

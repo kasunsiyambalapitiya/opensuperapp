@@ -50,24 +50,18 @@ const userAssertionHeader = async (): Promise<Record<string, string>> => ({
   "x-user-assertion": await getAccessToken(),
 });
 
-export const addToAppleWallet = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
-): Promise<boolean> => {
+export const addToAppleWallet = async (enabled: boolean): Promise<boolean> => {
   if (!enabled) {
     return false;
   }
 
   try {
-    const response = await apiRequest(
-      {
-        url: PKPASS_URL,
-        method: "GET",
-        responseType: "arraybuffer",
-        headers: await userAssertionHeader(),
-      },
-      onLogout
-    );
+    const response = await apiRequest({
+      url: PKPASS_URL,
+      method: "GET",
+      responseType: "arraybuffer",
+      headers: await userAssertionHeader(),
+    });
 
     if (
       !response ||
@@ -98,23 +92,17 @@ export const addToAppleWallet = async (
   }
 };
 
-export const addToGoogleWallet = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
-): Promise<boolean> => {
+export const addToGoogleWallet = async (enabled: boolean): Promise<boolean> => {
   if (!enabled) {
     return false;
   }
 
   try {
-    const response = await apiRequest(
-      {
-        url: GOOGLE_SAVE_URL_ENDPOINT,
-        method: "GET",
-        headers: await userAssertionHeader(),
-      },
-      onLogout
-    );
+    const response = await apiRequest({
+      url: GOOGLE_SAVE_URL_ENDPOINT,
+      method: "GET",
+      headers: await userAssertionHeader(),
+    });
 
     const saveUrl = (response?.data as GoogleSaveUrlResponse | undefined)
       ?.saveUrl;
@@ -140,9 +128,6 @@ export const addToGoogleWallet = async (
 };
 
 export const saveBusinessCardPass = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
+  enabled: boolean
 ): Promise<boolean> =>
-  isIos
-    ? addToAppleWallet(enabled, onLogout)
-    : addToGoogleWallet(enabled, onLogout);
+  isIos ? addToAppleWallet(enabled) : addToGoogleWallet(enabled);

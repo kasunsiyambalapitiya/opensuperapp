@@ -19,6 +19,7 @@ import SignInMessage from "@/components/SignInMessage";
 import SignInModal from "@/components/SignInModal";
 import { Colors } from "@/constants/Colors";
 import { NOT_DOWNLOADED } from "@/constants/Constants";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import {
   removeDownloading,
   updateDownloadProgress,
@@ -29,7 +30,6 @@ import {
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
-import { logout } from "@/services/authService";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -50,7 +50,7 @@ const Store = () => {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const { accessToken } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
   );
@@ -82,11 +82,13 @@ const Store = () => {
   // load micro apps list
   useEffect(() => {
     const initializeApps = async () => {
-      if (!accessToken) return;
+      // Not on accessToken: a session restored offline has none in Redux, and
+      // apiRequest takes the token from SecureStore, refreshing it if it has to.
+      if (!isSignedIn) return;
 
       setIsLoading(true);
       try {
-        await loadMicroAppDetails(dispatch, logout);
+        await loadMicroAppDetails(dispatch);
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -95,7 +97,7 @@ const Store = () => {
     };
 
     initializeApps();
-  }, [dispatch, accessToken]);
+  }, [dispatch, isSignedIn]);
 
   const handleRemoveMicroApp = async (dispatch: AppDispatch, appId: string) => {
     // A background version update can be writing the same files; removing
@@ -117,7 +119,7 @@ const Store = () => {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            await removeMicroApp(dispatch, appId, logout);
+            await removeMicroApp(dispatch, appId);
           },
         },
       ]
@@ -156,8 +158,7 @@ const Store = () => {
         await downloadMicroApp(
           dispatch,
           currentItem.appId,
-          currentItem.downloadUrl,
-          logout
+          currentItem.downloadUrl
         );
       } catch (error) {
         console.error("Installation failed:", error);
@@ -181,7 +182,7 @@ const Store = () => {
   // Modified download handler to create a serialized task queue
   const handleDownload = (appId: string, downloadUrl: string) => {
     //if not logged in, show signin
-    if (!accessToken) {
+    if (!isSignedIn) {
       setShowModal(true);
       return;
     }
@@ -200,7 +201,7 @@ const Store = () => {
   };
 
   // When default apps added need to remove this logic
-  if (!accessToken) {
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>
@@ -229,7 +230,7 @@ const Store = () => {
       />
 
       <SignInModal visible={showModal} onClose={() => setShowModal(false)} />
-      {isLoading ? (
+      {isLoading && apps.length === 0 ? (
         <View
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
         >

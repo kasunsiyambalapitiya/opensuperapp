@@ -54,30 +54,31 @@ describe("authEmitter", () => {
     expect(authEmitter).not.toBe(qrScannerEmitter);
   });
 
-  it("notifies a subscriber when Event.AuthLoggedOut is emitted", () => {
+  it("passes a subscriber the session signal emitted on Event.AuthSession", () => {
     const handler = jest.fn();
-    authEmitter.on(Event.AuthLoggedOut, handler);
+    authEmitter.on(Event.AuthSession, handler);
 
-    authEmitter.emit(Event.AuthLoggedOut, undefined);
+    authEmitter.emit(Event.AuthSession, { status: "expired" });
 
     expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ status: "expired" });
   });
 
   it("does not leak events to qrScannerEmitter subscribers", () => {
     const qrHandler = jest.fn();
     qrScannerEmitter.on(Event.QrScanned, qrHandler);
 
-    authEmitter.emit(Event.AuthLoggedOut, undefined);
+    authEmitter.emit(Event.AuthSession, { status: "expired" });
 
     expect(qrHandler).not.toHaveBeenCalled();
   });
 
   it("stops notifying a subscriber after unsubscribing", () => {
     const handler = jest.fn();
-    const unsubscribe = authEmitter.on(Event.AuthLoggedOut, handler);
+    const unsubscribe = authEmitter.on(Event.AuthSession, handler);
 
     unsubscribe();
-    authEmitter.emit(Event.AuthLoggedOut, undefined);
+    authEmitter.emit(Event.AuthSession, { status: "expired" });
 
     expect(handler).not.toHaveBeenCalled();
   });

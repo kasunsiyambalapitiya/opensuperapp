@@ -15,7 +15,7 @@
 // under the License.
 import { BASE_URL, NOTIFICATIONS_QUERY_KEY } from "@/constants/Constants";
 import { useNotificationsContext } from "@/context/NotificationsContext";
-import { RootState } from "@/context/store";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { apiRequest } from "@/utils/requestHandler";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -38,8 +38,8 @@ interface NotificationResponse {
 // Number of notifications to fetch per page
 export const NOTIFICATIONS_PER_PAGE = 20;
 
-export const useNotifications = (onLogout: () => Promise<void>) => {
-  const accessToken = useSelector((state: RootState) => state.auth.accessToken);
+export const useNotifications = () => {
+  const isSignedIn = useSelector(selectIsSignedIn);
   const { lastOpenedAt, markAsRead } = useNotificationsContext();
 
   const fetchNotifications = useCallback(
@@ -48,20 +48,17 @@ export const useNotifications = (onLogout: () => Promise<void>) => {
     }: {
       pageParam: number;
     }): Promise<NotificationResponse | undefined> => {
-      const response = await apiRequest(
-        {
-          url: `${BASE_URL}/user/notifications`,
-          method: "GET",
-          params: {
-            startIndex: pageParam,
-            itemsPerPage: NOTIFICATIONS_PER_PAGE,
-          },
+      const response = await apiRequest({
+        url: `${BASE_URL}/user/notifications`,
+        method: "GET",
+        params: {
+          startIndex: pageParam,
+          itemsPerPage: NOTIFICATIONS_PER_PAGE,
         },
-        onLogout
-      );
+      });
       return response?.data;
     },
-    [onLogout]
+    []
   );
 
   const {
@@ -84,7 +81,9 @@ export const useNotifications = (onLogout: () => Promise<void>) => {
     },
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
     gcTime: 1000 * 60 * 30, // Keep in cache for 30 minutes
-    enabled: !!accessToken,
+    // Not gated on a token in Redux: a session restored while degraded has none, and
+    // this query, refetched on every return to the foreground, is what retries it.
+    enabled: isSignedIn,
   });
 
   const notifications = useMemo(() => {

@@ -15,11 +15,7 @@
 // under the License.
 import { CHAT_AGENT_URL } from "@/constants/Constants";
 import { MessageStatus } from "@/constants/enums/Chat";
-import {
-  isTokenExpired,
-  loadAuthData,
-  logout,
-} from "@/services/authService";
+import { isTokenExpired, loadAuthData } from "@/services/authService";
 import { refreshAccessToken } from "@/services/tokenRefresh";
 import {
   ChatMessage,
@@ -44,7 +40,7 @@ const getValidAccessToken = async (): Promise<string | null> => {
 
   if (isTokenExpired(authData.accessToken)) {
     const refreshed = await Promise.race([
-      refreshAccessToken(logout),
+      refreshAccessToken(),
       new Promise<null>((resolve) => {
         setTimeout(() => resolve(null), 10_000);
       }),

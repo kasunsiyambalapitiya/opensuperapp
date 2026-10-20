@@ -42,8 +42,12 @@ jest.mock("@/context/slices/userInfoSlice", () => ({
 }));
 // Pulls in appSlice -> exchangedTokenStore -> AsyncStorage, whose native
 // module isn't linked in this Jest environment.
-jest.mock("@/utils/performLogout", () => ({
-  performLogout: jest.fn(),
+jest.mock("@/utils/endSession", () => ({
+  endSession: jest.fn(),
+}));
+jest.mock("@/context/slices/authSlice", () => ({
+  selectIsSignedIn: (state: { auth: { sessionStatus: string } }) =>
+    state.auth.sessionStatus === "authenticated",
 }));
 
 type HeaderRight = () => React.ReactElement | null;
@@ -82,7 +86,10 @@ jest.mock("react-redux", () => ({
   useDispatch: () => mockDispatch,
   useSelector: (selector: (state: unknown) => unknown) =>
     selector({
-      auth: { accessToken: mockAccessToken },
+      auth: {
+        accessToken: mockAccessToken,
+        sessionStatus: mockAccessToken ? "authenticated" : "signedOut",
+      },
       userInfo: { userInfo: null },
     }),
 }));
@@ -109,7 +116,6 @@ jest.mock("react-native-qrcode-svg", () => ({
   default: () => null,
 }));
 
-jest.mock("@/services/authService", () => ({ logout: jest.fn() }));
 jest.mock("@/services/walletPassService", () => ({
   saveBusinessCardPass: jest.fn().mockResolvedValue(false),
 }));

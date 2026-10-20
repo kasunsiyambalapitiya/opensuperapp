@@ -20,7 +20,6 @@ import { Colors } from "@/constants/Colors";
 import { Styles } from "@/constants/Styles";
 import { useLocalNotifications } from "@/hooks/useLocalNotifications";
 import { Notification, useNotifications } from "@/hooks/useNotifications";
-import { logout } from "@/services/authService";
 import { convertToUtc } from "@/utils/date";
 import { Ionicons } from "@expo/vector-icons";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -50,7 +49,7 @@ export default function Notifications() {
     isFetchingNextPage,
     lastOpenedAt,
     markAsRead,
-  } = useNotifications(logout);
+  } = useNotifications();
 
   const { localNotifications } = useLocalNotifications();
 

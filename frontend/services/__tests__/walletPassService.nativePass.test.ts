@@ -78,8 +78,6 @@ jest.mock("expo-file-system", () => {
   };
 });
 
-const onLogout = jest.fn().mockResolvedValue(undefined);
-
 // The two business-card endpoints are the only backend calls that pass the
 // caller's raw token on in `x-user-assertion`, so the token is pinned here to
 // assert the header is set per call rather than by the shared request handler.
@@ -105,7 +103,7 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(true);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(true);
+    await expect(addToAppleWallet(true)).resolves.toBe(true);
 
     expect(mockShowAddPassControllerFromFile).toHaveBeenCalledTimes(1);
     expect(Sharing.shareAsync).not.toHaveBeenCalled();
@@ -116,7 +114,7 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(true);
 
-    await addToAppleWallet(true, onLogout);
+    await addToAppleWallet(true);
 
     // PKAddPassesViewController's Swift side calls URL(fileURLWithPath:),
     // which reads a "file://" prefix as part of the path and then finds
@@ -133,14 +131,14 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(false);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(true)).resolves.toBe(false);
   });
 
   it("tells the user when the device cannot add passes at all", async () => {
     okResponse();
     mockCanAddPasses.mockResolvedValue(false);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(true)).resolves.toBe(false);
 
     expect(Alert.alert).toHaveBeenCalled();
     // A share sheet cannot add a pass either, so offering one would be a
@@ -156,7 +154,7 @@ describe("addToAppleWallet — native add sheet", () => {
       new Error("NO_VIEW_CONTROLLER")
     );
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(true);
+    await expect(addToAppleWallet(true)).resolves.toBe(true);
 
     expect(Sharing.shareAsync).toHaveBeenCalledWith(expect.any(String), {
       UTI: "com.apple.pkpass",
@@ -164,7 +162,7 @@ describe("addToAppleWallet — native add sheet", () => {
   });
 
   it("makes no request and opens nothing when the flag is off", async () => {
-    await expect(addToAppleWallet(false, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(false)).resolves.toBe(false);
 
     expect(apiRequest).not.toHaveBeenCalled();
     expect(mockCanAddPasses).not.toHaveBeenCalled();

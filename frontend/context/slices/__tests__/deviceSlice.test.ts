@@ -56,12 +56,11 @@ jest.mock("@/utils/offlineQueue", () => ({
 
 type Thunk = (dispatch: (action: unknown) => unknown) => Promise<unknown>;
 
-const onLogout = jest.fn();
 const dispatch: jest.Mock = jest.fn((action: unknown): unknown =>
   typeof action === "function" ? (action as Thunk)(dispatch) : action
 );
 const push = (fcmToken: string) =>
-  (pushFcmToken({ fcmToken, onLogout }) as unknown as Thunk)(dispatch);
+  (pushFcmToken({ fcmToken }) as unknown as Thunk)(dispatch);
 
 // What axios throws when the request never reached the server.
 const networkError = () =>

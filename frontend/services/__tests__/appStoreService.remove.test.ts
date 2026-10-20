@@ -37,6 +37,9 @@ jest.mock("@/context/slices/appSlice", () => ({
   }),
 }));
 
+jest.mock("@/context/slices/authSlice", () => ({
+  selectIsSignedIn: jest.fn(() => true),
+}));
 jest.mock("@/context/store", () => ({
   store: { getState: () => ({ auth: { userId: "user-1" } }) },
 }));
@@ -94,7 +97,6 @@ import { NOT_DOWNLOADED } from "@/constants/Constants";
 import { removeMicroApp } from "@/services/appStoreService";
 import { UpdateUserConfiguration } from "@/services/userConfigService";
 
-const logout = jest.fn(async () => {});
 
 describe("removeMicroApp", () => {
   beforeEach(() => {
@@ -108,12 +110,11 @@ describe("removeMicroApp", () => {
       return action;
     });
 
-    await removeMicroApp(dispatch as never, "app-1", logout);
+    await removeMicroApp(dispatch as never, "app-1");
 
     expect(UpdateUserConfiguration).toHaveBeenCalledWith(
       "app-1",
-      NOT_DOWNLOADED,
-      logout
+      NOT_DOWNLOADED
     );
     expect(mockCallOrder).toEqual([
       "dispatch:addRemoving",
@@ -135,7 +136,7 @@ describe("removeMicroApp", () => {
       return action;
     });
 
-    await removeMicroApp(dispatch as never, "app-1", logout);
+    await removeMicroApp(dispatch as never, "app-1");
 
     expect(mockDeleteDirectory).not.toHaveBeenCalled();
     expect(mockDeleteFile).not.toHaveBeenCalled();
@@ -159,7 +160,7 @@ describe("removeMicroApp", () => {
       return action;
     });
 
-    await removeMicroApp(dispatch as never, "app-1", logout);
+    await removeMicroApp(dispatch as never, "app-1");
 
     expect(dispatched).toEqual(["addRemoving", "removeRemoving"]);
   });

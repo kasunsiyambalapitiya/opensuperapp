@@ -27,6 +27,7 @@ import {
 import { Directory, Paths } from "expo-file-system";
 import { ScreenPaths } from "@/constants/ScreenPaths";
 import { MicroApp } from "@/context/slices/appSlice";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { AppDispatch, RootState } from "@/context/store";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
@@ -35,7 +36,6 @@ import {
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
-import { logout } from "@/services/authService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
@@ -61,7 +61,8 @@ export default function HomeScreen() {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const { userId, accessToken } = useSelector((state: RootState) => state.auth);
+  const userId = useSelector((state: RootState) => state.auth.userId);
+  const isSignedIn = useSelector(selectIsSignedIn);
   const downloading = useSelector((state: RootState) => state.apps.downloading);
   const removing = useSelector((state: RootState) => state.apps.removing);
   const isForceUpdate = useSelector(
@@ -142,7 +143,6 @@ export default function HomeScreen() {
           isCheckingUpdates.current = true;
           await loadMicroAppDetails(
             dispatch,
-            logout,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
             },
@@ -177,7 +177,6 @@ export default function HomeScreen() {
         if (!apps || apps.length === 0) {
           await loadMicroAppDetails(
             dispatch,
-            logout,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
             },
@@ -187,7 +186,7 @@ export default function HomeScreen() {
           );
         }
         if (!userConfigurations || userConfigurations.length === 0) {
-          dispatch(getUserConfigurations(logout));
+          dispatch(getUserConfigurations());
         }
       } catch (error) {
         console.error("Error during app initialization:", error);
@@ -213,7 +212,7 @@ export default function HomeScreen() {
         for (const appId of appsToRemove) {
           const appData = apps.find((app) => app.appId === appId);
           setCurrentAction(`Removing ${appData?.name || appId}`);
-          await removeMicroApp(dispatch, appId, logout);
+          await removeMicroApp(dispatch, appId);
           setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         }
 
@@ -224,8 +223,7 @@ export default function HomeScreen() {
           await downloadMicroApp(
             dispatch,
             appId,
-            appData.versions?.[0]?.downloadUrl,
-            logout
+            appData.versions?.[0]?.downloadUrl
           );
           setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         }
@@ -296,7 +294,7 @@ export default function HomeScreen() {
     }
   }, [searchQuery, apps]);
 
-  if (!accessToken) {
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>

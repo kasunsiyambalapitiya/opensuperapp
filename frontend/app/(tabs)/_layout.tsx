@@ -23,6 +23,7 @@ import {
   MY_APPS_TAB_NAME,
   PROFILE_TAB_NAME,
 } from "@/constants/Constants";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { RootState } from "@/context/store";
 import { DEFAULT_TAB_CONFIG } from "@/types/remoteConfig.types";
 import { useTabVisibilityRules } from "@/hooks/useRemoteConfig";
@@ -101,8 +102,7 @@ export default function TabLayout() {
     (state: RootState) => state.userInfo.userInfo?.workEmail
   );
   const email = authEmail ?? workEmail ?? null;
-  const authState = useSelector((state: RootState) => state.auth.accessToken);
-  const isAuthenticated = Boolean(authState);
+  const isAuthenticated = useSelector(selectIsSignedIn);
 
   const { loading, rules } = useTabVisibilityRules();
 

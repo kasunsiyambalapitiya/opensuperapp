@@ -33,7 +33,6 @@ import { ScreenPaths } from "@/constants/ScreenPaths";
 import { RootState } from "@/context/store";
 import {
   isTokenExpired,
-  logout,
   tokenExchange,
   TokenExchangeResult,
 } from "@/services/authService";
@@ -184,7 +183,6 @@ const MicroApp = () => {
             exchangedToken,
             exchangedIdToken,
             appId,
-            logout,
             appScopes
           );
           if (result) {
@@ -266,7 +264,6 @@ const MicroApp = () => {
           exchangedToken,
           exchangedIdToken,
           appId,
-          logout,
           appScopes
         );
         if (!result) throw new Error("Token exchange failed");
