@@ -43,7 +43,6 @@ import {
 import { waitForOnline } from "@/utils/connectivity";
 import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { jwtDecode } from "jwt-decode";
-import { Alert } from "react-native";
 
 const GRANT_TYPE_REFRESH_TOKEN = "refresh_token";
 const MILLISECONDS_IN_A_SECOND = 1000;
@@ -54,10 +53,8 @@ const TOKEN_REFRESH_TIMEOUT_MS = 15000;
 // Attempts wait out an offline stretch rather than fail against a dead radio, but every
 // screen that wants a token waits behind the same refresh, so each wait is bounded.
 const OFFLINE_WAIT_TIMEOUT_MS = 30000;
-const SESSION_ALERT_COOLDOWN_MS = 30000;
 
 let refreshPromise: Promise<AuthData | null> | null = null;
-let lastSessionAlertAt = 0;
 
 type TokenResponse = {
   access_token?: string;
@@ -75,16 +72,6 @@ const shouldRetryRefresh = (err: unknown): boolean => {
   if (!(err instanceof AuthError)) return false;
   if (err.kind === "invalid_grant") return false;
   return isRetryable(err.kind) || err.status === 400;
-};
-
-// A cooldown rather than a latch: a latch released only by the dialog's OK button stays
-// shut forever when Android dismisses it with the back button, and then the user is
-// signed out in the silence this alert exists to break.
-const alertSession = (title: string, message: string) => {
-  const now = Date.now();
-  if (now - lastSessionAlertAt < SESSION_ALERT_COOLDOWN_MS) return;
-  lastSessionAlertAt = now;
-  Alert.alert(title, message);
 };
 
 const readOAuthErrorBody = async (
@@ -199,7 +186,7 @@ const waitForOnlineWithinBound = async (): Promise<void> => {
   }
 };
 
-// Whether a refresh that ran out of attempts ends the session, and what the user is told.
+// Whether a refresh that ran out of attempts ends the session, and why.
 const handleRefreshFailure = async (err: unknown): Promise<null> => {
   const kind =
     err instanceof AuthError ? err.kind : classifyAuthError({ error: err });
@@ -219,22 +206,11 @@ const handleRefreshFailure = async (err: unknown): Promise<null> => {
 
   // An earlier refresh sent this token and never saw the reply: the server rotated it
   // away and the replacement never arrived. Not recoverable, but not an ordinary expiry
-  // either, and dropping the user without a word is how this stayed invisible for months.
-  const interrupted = await readInterruptedRefresh();
-  if (interrupted) {
-    alertSession(
-      "Signed Out",
-      "We lost your sign-in while the connection was down. Please sign in again."
-    );
-  } else {
-    alertSession(
-      "Session Expired",
-      "Your session has expired. Please sign in again."
-    );
-  }
+  // either, and the sign-in prompt says so rather than dropping the user without a word.
+  const rotationLost = Boolean(await readInterruptedRefresh());
 
   await clearInterruptedRefresh();
-  authEmitter.emit(Event.AuthSession, { status: "expired" });
+  authEmitter.emit(Event.AuthSession, { status: "expired", rotationLost });
   return null;
 };
 

@@ -21,7 +21,8 @@ import {
   AuthState,
   resetAll,
   selectHasSessionEnded,
-  setSessionStatus,
+  setEndingSession,
+  setSessionEnd,
 } from "@/context/slices/authSlice";
 import {
   clearDeviceState,
@@ -29,7 +30,7 @@ import {
 } from "@/context/slices/deviceSlice";
 import { persistor } from "@/context/store";
 import { clearNotifications } from "@/services/scheduledNotifications";
-import { SessionStatus } from "@/types/auth.types";
+import { SessionEnd } from "@/types/auth.types";
 import {
   clearAuthDataFromSecureStore,
   loadAuthDataFromSecureStore,
@@ -41,9 +42,6 @@ import { router } from "expo-router";
 import { deleteItemAsync } from "expo-secure-store";
 import { Alert } from "react-native";
 import { logout as appLogout } from "react-native-app-auth";
-
-/** Why the session ended, which is also the status it ends in. */
-export type SessionEndReason = Extract<SessionStatus, "expired" | "signedOut">;
 
 // Each step runs whatever happened to the one before: a keychain error must not leave
 // the apps list on screen, which is how a failed logout used to clear nothing at all.
@@ -69,14 +67,16 @@ const readAppIds = async (): Promise<string[]> => {
  */
 export const endSession = createAsyncThunk<
   void,
-  SessionEndReason,
+  SessionEnd,
   { state: { auth: AuthState } }
 >(
   "auth/endSession",
-  async (reason, { dispatch }) => {
+  async (end, { dispatch, getState }) => {
     // Before the first await, so an expiry reported again while this one is still
-    // clearing finds the session already ended and is dropped by `condition`.
-    dispatch(setSessionStatus(reason));
+    // clearing finds the session already ended and is dropped by `condition`. Until the
+    // clearing is done, the sign-in prompt stays hidden.
+    dispatch(setSessionEnd(end));
+    dispatch(setEndingSession(true));
 
     // Read before anything is cleared: Asgardeo needs the id token, and each app's
     // exchanged token is stored under its id.
@@ -89,26 +89,42 @@ export const endSession = createAsyncThunk<
       appIds = await readAppIds();
     });
 
-    await runStep("clearing tokens", clearAuthDataFromSecureStore);
-    await runStep("clearing exchanged tokens", () =>
-      clearAllExchangedTokens(appIds)
-    );
-    await runStep("clearing user info", () => deleteItemAsync(USER_INFO));
-    await runStep("purging persisted state", () => persistor.purge());
-    await runStep("clearing notifications", clearNotifications);
-    await runStep("clearing the last sent FCM token", () =>
-      dispatch(clearLastSentFcmToken())
-    );
+    // A sign-in from a Sign In button elsewhere can still land before this is done.
+    // The device is that session's now, and clearing on would sign it out again.
+    const isSuperseded = () => !selectHasSessionEnded(getState());
+    const clearingSteps: [string, () => unknown][] = [
+      ["clearing tokens", clearAuthDataFromSecureStore],
+      ["clearing exchanged tokens", () => clearAllExchangedTokens(appIds)],
+      ["clearing user info", () => deleteItemAsync(USER_INFO)],
+      ["purging persisted state", () => persistor.purge()],
+      ["clearing notifications", clearNotifications],
+      [
+        "clearing the last sent FCM token",
+        () => dispatch(clearLastSentFcmToken()),
+      ],
+    ];
+    for (const [name, step] of clearingSteps) {
+      if (isSuperseded()) {
+        dispatch(setEndingSession(false));
+        return;
+      }
+      await runStep(name, step);
+    }
+    if (isSuperseded()) {
+      dispatch(setEndingSession(false));
+      return;
+    }
 
+    // Also clears isEndingSession.
     dispatch(resetAll());
     dispatch(setApps([]));
     dispatch(clearDeviceState());
     // resetAll put the whole tree, status included, back to its initial state.
-    dispatch(setSessionStatus(reason));
+    dispatch(setSessionEnd(end));
 
     // Ending the Asgardeo session opens a browser, which only makes sense when the
     // user asked to sign out. After an expiry, keeping it lets them sign straight back in.
-    if (reason !== "signedOut") return;
+    if (end.status !== "signedOut") return;
 
     const signedOutIdToken = idToken;
     if (signedOutIdToken) {

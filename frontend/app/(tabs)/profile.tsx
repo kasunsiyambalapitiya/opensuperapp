@@ -144,7 +144,7 @@ const SettingsScreen = () => {
           style: "destructive",
           onPress: async () => {
             await dispatch(disableFCMToken());
-            await dispatch(endSession("signedOut"));
+            await dispatch(endSession({ status: "signedOut" }));
           },
         },
       ]
@@ -157,7 +157,10 @@ const SettingsScreen = () => {
    * checked without waiting for a real token to die.
    */
   const handleSimulateSilentLogout = useCallback(() => {
-    authEmitter.emit(Event.AuthSession, { status: "expired" });
+    authEmitter.emit(Event.AuthSession, {
+      status: "expired",
+      rotationLost: false,
+    });
   }, []);
 
   if (!isSignedIn) {

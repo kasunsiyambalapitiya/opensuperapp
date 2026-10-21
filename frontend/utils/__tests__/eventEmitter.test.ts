@@ -58,17 +58,26 @@ describe("authEmitter", () => {
     const handler = jest.fn();
     authEmitter.on(Event.AuthSession, handler);
 
-    authEmitter.emit(Event.AuthSession, { status: "expired" });
+    authEmitter.emit(Event.AuthSession, {
+      status: "expired",
+      rotationLost: false,
+    });
 
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({ status: "expired" });
+    expect(handler).toHaveBeenCalledWith({
+      status: "expired",
+      rotationLost: false,
+    });
   });
 
   it("does not leak events to qrScannerEmitter subscribers", () => {
     const qrHandler = jest.fn();
     qrScannerEmitter.on(Event.QrScanned, qrHandler);
 
-    authEmitter.emit(Event.AuthSession, { status: "expired" });
+    authEmitter.emit(Event.AuthSession, {
+      status: "expired",
+      rotationLost: false,
+    });
 
     expect(qrHandler).not.toHaveBeenCalled();
   });
@@ -78,7 +87,10 @@ describe("authEmitter", () => {
     const unsubscribe = authEmitter.on(Event.AuthSession, handler);
 
     unsubscribe();
-    authEmitter.emit(Event.AuthSession, { status: "expired" });
+    authEmitter.emit(Event.AuthSession, {
+      status: "expired",
+      rotationLost: false,
+    });
 
     expect(handler).not.toHaveBeenCalled();
   });

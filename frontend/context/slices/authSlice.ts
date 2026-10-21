@@ -15,7 +15,7 @@
 // under the License.
 import { removeGoogleAuthState } from "@/services/googleService";
 import { syncMicroAppCacheForUser } from "@/utils/microAppCacheStore";
-import { SessionStatus } from "@/types/auth.types";
+import { SessionEnd, SessionStatus } from "@/types/auth.types";
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getItemAsync, setItemAsync } from "expo-secure-store";
 import { AuthData, loadAuthData } from "../../services/authService";
@@ -30,6 +30,10 @@ export interface AuthState {
   userId: AuthData["userId"] | null;
   isLoading: boolean;
   sessionStatus: SessionStatus;
+  /** The session that ended was lost to a rotation whose reply never arrived. */
+  rotationLost: boolean;
+  /** endSession is still clearing the device; signing in now would be cleared too. */
+  isEndingSession: boolean;
 }
 
 export type { SessionStatus };
@@ -42,6 +46,8 @@ const initialState: AuthState = {
   userId: null,
   isLoading: false,
   sessionStatus: "restoring",
+  rotationLost: false,
+  isEndingSession: false,
 };
 
 const SIGNED_IN_STATUSES: SessionStatus[] = [
@@ -67,6 +73,7 @@ const setAuthenticated = (state: AuthState, authData: AuthData) => {
   state.userId = authData.userId;
   state.isLoading = false;
   state.sessionStatus = "authenticated";
+  state.rotationLost = false;
 };
 
 // Async action to restore persisted auth state
@@ -136,6 +143,14 @@ const authSlice = createSlice({
       if (ENDED_STATUSES.includes(state.sessionStatus)) return;
       setAuthenticated(state, action.payload);
     },
+    setSessionEnd: (state, action: PayloadAction<SessionEnd>) => {
+      state.sessionStatus = action.payload.status;
+      state.rotationLost =
+        action.payload.status === "expired" && action.payload.rotationLost;
+    },
+    setEndingSession: (state, action: PayloadAction<boolean>) => {
+      state.isEndingSession = action.payload;
+    },
     setSessionStatus: (state, action: PayloadAction<SessionStatus>) => {
       // Only a sign-in (setAuth) starts a new session. A refresh still in flight when
       // the last one ended must not bring it back.
@@ -197,6 +212,8 @@ export const selectHasSessionEnded = (state: StateWithAuth) =>
 export const {
   setAuth,
   setRefreshedAuth,
+  setSessionEnd,
+  setEndingSession,
   setSessionStatus,
   resetAll,
 } = authSlice.actions;

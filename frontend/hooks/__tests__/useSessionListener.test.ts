@@ -107,20 +107,23 @@ describe("useSessionListener", () => {
     }
   );
 
-  it("ends the session when it has expired", () => {
-    mount();
+  it.each([false, true])(
+    "ends the session when it has expired, saying whether a rotation was lost (%s)",
+    (rotationLost) => {
+      mount();
 
-    act(() => {
-      authEmitter.emit(Event.AuthSession, { status: "expired" });
-    });
+      act(() => {
+        authEmitter.emit(Event.AuthSession, { status: "expired", rotationLost });
+      });
 
-    // endSession's own condition drops a repeat, so the listener need not.
-    expect(mockDispatch).toHaveBeenCalledTimes(1);
-    expect(mockDispatch).toHaveBeenCalledWith({
-      type: "auth/endSession",
-      payload: "expired",
-    });
-  });
+      // endSession's own condition drops a repeat, so the listener need not.
+      expect(mockDispatch).toHaveBeenCalledTimes(1);
+      expect(mockDispatch).toHaveBeenCalledWith({
+        type: "auth/endSession",
+        payload: { status: "expired", rotationLost },
+      });
+    }
+  );
 
   it("stops dispatching after unmount (cleanup unsubscribes)", () => {
     const root = mount();
@@ -129,7 +132,10 @@ describe("useSessionListener", () => {
       root.unmount();
     });
     act(() => {
-      authEmitter.emit(Event.AuthSession, { status: "expired" });
+      authEmitter.emit(Event.AuthSession, {
+        status: "expired",
+        rotationLost: false,
+      });
     });
 
     expect(mockDispatch).not.toHaveBeenCalled();

@@ -40,7 +40,7 @@ export const useSessionListener = () => {
             dispatch(setRefreshedAuth(signal.authData));
             return;
           case "expired":
-            dispatch(endSession("expired"));
+            dispatch(endSession(signal));
             return;
           default:
             dispatch(setSessionStatus(signal.status));

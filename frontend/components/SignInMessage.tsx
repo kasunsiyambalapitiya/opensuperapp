@@ -33,8 +33,10 @@ import {
  */
 const SignInMessage = React.memo(
   ({
+    title = "Sign in Required",
     message = "Please sign in to continue using the app",
   }: {
+    title?: string;
     message?: string;
   }) => {
     const colorScheme = useColorScheme();
@@ -65,7 +67,9 @@ const SignInMessage = React.memo(
         />
 
         {/* Title */}
-        <Text style={styles.title}>Sign in Required</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          {title}
+        </Text>
 
         {/* Description */}
         <Text style={styles.message}>{message}</Text>
@@ -73,6 +77,9 @@ const SignInMessage = React.memo(
         {/* Sign-in button or loading indicator */}
         <TouchableOpacity
           disabled={isLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          accessibilityState={{ busy: isLoading }}
           style={styles.button}
           onPress={handleSignInPress}
           activeOpacity={0.5}
