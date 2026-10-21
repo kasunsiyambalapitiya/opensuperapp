@@ -17,9 +17,8 @@ import { Event } from "@/constants/enums/Event";
 import { refreshAccessToken } from "@/services/tokenRefresh";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { loadAuthDataFromSecureStore } from "@/utils/authTokenStore";
+import { isTokenExpired } from "@/utils/tokenExpiry";
 import axios, { AxiosRequestConfig } from "axios";
-import dayjs from "dayjs";
-import { jwtDecode } from "jwt-decode";
 
 // General API request handler
 export const apiRequest = async (config: AxiosRequestConfig) => {
@@ -28,8 +27,9 @@ export const apiRequest = async (config: AxiosRequestConfig) => {
   // If no access token, return early
   if (!accessToken) return;
 
-  // Check if token is expired before making request
-  if (isAccessTokenExpired(accessToken)) {
+  // Expiry, not the earlier refresh point: if a proactive refresh has failed, a token
+  // that still works is better sent than held back.
+  if (isTokenExpired(accessToken)) {
     const newAuthData = await refreshAccessToken();
 
     if (!newAuthData?.accessToken) {
@@ -95,16 +95,6 @@ export const apiRequest = async (config: AxiosRequestConfig) => {
     }
 
     throw error;
-  }
-};
-
-// Helper function to check if the token is expired
-const isAccessTokenExpired = (accessToken: string): boolean => {
-  try {
-    const decoded = jwtDecode<{ exp: number }>(accessToken);
-    return dayjs.unix(decoded.exp).isBefore(dayjs());
-  } catch {
-    return true; // Assume expired if decoding fails
   }
 };
 

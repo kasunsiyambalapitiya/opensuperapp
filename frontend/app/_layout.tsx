@@ -27,6 +27,7 @@ import { AppDispatch, persistor, store } from "@/context/store";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
 import { useOfflineQueueReplay } from "@/hooks/useOfflineQueueReplay";
+import { useProactiveTokenRefresh } from "@/hooks/useProactiveTokenRefresh";
 import { usePushNotificationHandler } from "@/hooks/usePushNotificationHandler";
 import { useSessionListener } from "@/hooks/useSessionListener";
 import { runMigrations } from "@/migrations/migrator";
@@ -74,6 +75,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
   useNotificationNavigation();
 
   useOfflineQueueReplay();
+
+  useProactiveTokenRefresh();
 
   const queryClient = useQueryClient();
 

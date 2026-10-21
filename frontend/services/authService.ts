@@ -28,14 +28,15 @@ import {
   saveAuthDataToSecureStore,
   SecureAuthData,
 } from "@/utils/authTokenStore";
+import { isTokenExpired } from "@/utils/tokenExpiry";
 import axios from "axios";
-import dayjs from "dayjs";
 import { jwtDecode } from "jwt-decode";
 import { Alert } from "react-native";
 import { AuthorizeResult } from "react-native-app-auth";
 
 // Re-exported so the many existing importers of these shapes do not have to move.
 export type { AuthData, DecodedIdToken };
+export { isTokenExpired };
 
 const GRANT_TYPE_AUTHORIZATION_CODE = "authorization_code";
 const GRANT_TYPE_TOKEN_EXCHANGE =
@@ -244,16 +245,6 @@ export const tokenExchange = async (
   } catch (error) {
     console.error("Error during token exchange:", error);
     return null;
-  }
-};
-
-// Helper function to check if the token is expired
-export const isTokenExpired = (token: string): boolean => {
-  try {
-    const decoded = jwtDecode<{ exp: number }>(token);
-    return dayjs.unix(decoded.exp).isBefore(dayjs());
-  } catch {
-    return true;
   }
 };
 
