@@ -41,21 +41,24 @@ const isValidPath = (path: string): path is ScreenPaths => {
  * it to them now: a signed-out user is not restored onto Chat.
  *
  * @param isTabVisible - The tab bar's own rule for whether a tab is shown.
+ * @param areRulesLoaded - Whether isTabVisible is applying the loaded visibility rules
+ *   rather than the defaults it falls back to while they load.
  */
 export const useRestoreLastTab = (
-  isTabVisible: (tabName: string) => boolean
+  isTabVisible: (tabName: string) => boolean,
+  areRulesLoaded = true
 ) => {
   const router = useRouter();
   const [isRestored, setIsRestored] = useState(false);
-  // Which tabs a user may see depends on the session, so nothing is decided until it is
-  // known, and then only once.
+  // Which tabs a user may see depends on the session and the visibility rules, so nothing
+  // is decided until both are known, and then only once.
   const isSessionKnown = useSelector(selectSessionStatus) !== "restoring";
   const hasStarted = useRef(false);
   const isTabVisibleRef = useRef(isTabVisible);
   isTabVisibleRef.current = isTabVisible;
 
   useEffect(() => {
-    if (!isSessionKnown || hasStarted.current) return;
+    if (!isSessionKnown || !areRulesLoaded || hasStarted.current) return;
     hasStarted.current = true;
 
     const canRestore = (path: ScreenPaths) => {
@@ -83,7 +86,7 @@ export const useRestoreLastTab = (
     };
 
     restoreTab();
-  }, [isSessionKnown, router]);
+  }, [isSessionKnown, areRulesLoaded, router]);
 
   // Prevent Discovery from showing on initial load if it's already being processed
   if (!isRestored) return null; // Prevent rendering until restored

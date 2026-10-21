@@ -269,23 +269,12 @@ const MicroApp = () => {
   useEffect(() => {
     const fetchToken = async () => {
       try {
-        const result = await tokenExchange(
-          dispatch,
-          clientId,
-          exchangedToken,
-          exchangedIdToken,
-          appId,
-          appScopes
-        );
+        // Shared with the bridge's token requests, so one made during startup waits on
+        // this exchange instead of racing it to a different answer.
+        const result = await refreshTokenIfExpired();
         if (!result) throw new Error("Token exchange failed");
-        if (result.accessToken) {
-          setToken(result.accessToken);
-          sendTokenToWebView(result.accessToken);
-        }
-        if (result.idToken) {
-          setIdToken(result.idToken);
-          sendIdTokenToWebView(result.idToken);
-        }
+        if (result.accessToken) sendTokenToWebView(result.accessToken);
+        if (result.idToken) sendIdTokenToWebView(result.idToken);
       } catch (error) {
         console.error("Token exchange error:", error);
         rejectTokenRequest("rejectToken", null);
@@ -332,7 +321,7 @@ const MicroApp = () => {
   // Answers a token request that cannot be filled, so the micro app's promise settles
   // instead of hanging. When the exchange itself failed - as opposed to coming back
   // without an ID token - the user is told too: an expired session closes this screen,
-  // so what is left is the connection, and that may come back.
+  // so what is left is the connection or the server, and either may come back.
   const rejectTokenRequest = (
     method: "rejectToken" | "rejectIdToken",
     exchange: TokenExchangeResult | null
@@ -1068,8 +1057,7 @@ const MicroApp = () => {
             accessibilityLiveRegion="polite"
           >
             <Text style={styles.tokenErrorText}>
-              Couldn&apos;t sign in to {appName}. Check your connection and try
-              again.
+              Couldn&apos;t sign in to {appName}. Try again in a moment.
             </Text>
             <TouchableOpacity
               onPress={retryToken}

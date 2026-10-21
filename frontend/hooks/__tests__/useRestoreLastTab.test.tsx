@@ -39,16 +39,24 @@ jest.mock("expo-router", () => ({ useRouter: () => mockRouter }));
 
 type SetStatus = { type: "set"; sessionStatus: SessionStatus };
 
-// Stands in for the tab bar's own rules: Chat is shown only to a signed-in user.
-const visibleTabs = (signedIn: boolean) => (tabName: string) =>
-  tabName !== "chat" || signedIn;
+// Stands in for the tab bar's own rules: Chat is shown only to a signed-in user, and
+// only if the visibility rules allow it.
+type Rules = { loaded: boolean; chatHidden: boolean };
+const LOADED_RULES: Rules = { loaded: true, chatHidden: false };
 
-const Tabs = ({ signedIn }: { signedIn: boolean }) => {
-  useRestoreLastTab(visibleTabs(signedIn));
+const visibleTabs = (signedIn: boolean, rules: Rules) => (tabName: string) =>
+  tabName !== "chat" || (signedIn && !rules.chatHidden);
+
+const Tabs = ({ signedIn, rules }: { signedIn: boolean; rules: Rules }) => {
+  useRestoreLastTab(visibleTabs(signedIn, rules), rules.loaded);
   return null;
 };
 
-const mount = async (sessionStatus: SessionStatus, lastPath: ScreenPaths) => {
+const mount = async (
+  sessionStatus: SessionStatus,
+  lastPath: ScreenPaths,
+  initialRules: Rules = LOADED_RULES
+) => {
   await AsyncStorage.setItem(LAST_ACTIVE_PATH_KEY, lastPath);
   const store = createStore(
     (
@@ -63,12 +71,13 @@ const mount = async (sessionStatus: SessionStatus, lastPath: ScreenPaths) => {
   );
   const signedIn = (status: SessionStatus) =>
     ["authenticated", "refreshing", "degraded"].includes(status);
+  let rules = initialRules;
 
   let tree!: ReturnType<typeof create>;
   await act(async () => {
     tree = create(
       <Provider store={store}>
-        <Tabs signedIn={signedIn(sessionStatus)} />
+        <Tabs signedIn={signedIn(sessionStatus)} rules={rules} />
       </Provider>
     );
   });
@@ -79,17 +88,31 @@ const mount = async (sessionStatus: SessionStatus, lastPath: ScreenPaths) => {
   const setStatus = async (status: SessionStatus) => {
     await act(async () => {
       store.dispatch({ type: "set", sessionStatus: status });
-      tree.update(
-        <Provider store={store}>
-          <Tabs signedIn={signedIn(status)} />
-        </Provider>
-      );
+      rerender();
     });
     await act(async () => {
       jest.runOnlyPendingTimers();
     });
   };
-  return { setStatus };
+  const setRules = async (next: Rules) => {
+    rules = next;
+    await act(async () => {
+      rerender();
+    });
+    await act(async () => {
+      jest.runOnlyPendingTimers();
+    });
+  };
+  const rerender = () =>
+    tree.update(
+      <Provider store={store}>
+        <Tabs
+          signedIn={signedIn(store.getState().auth.sessionStatus)}
+          rules={rules}
+        />
+      </Provider>
+    );
+  return { setStatus, setRules };
 };
 
 beforeEach(async () => {
@@ -141,6 +164,20 @@ describe("useRestoreLastTab", () => {
 
     expect(mockRouter.replace).toHaveBeenCalledTimes(1);
     expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.CHAT);
+  });
+
+  it("waits for the visibility rules before deciding", async () => {
+    const { setRules } = await mount("authenticated", ScreenPaths.CHAT, {
+      loaded: false,
+      chatHidden: false,
+    });
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+
+    // The loaded rules hide Chat, which the defaults used while loading had shown.
+    await setRules({ loaded: true, chatHidden: true });
+
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith(ScreenPaths.FEED);
   });
 
   it("goes to the Feed when a restore ends signed out", async () => {

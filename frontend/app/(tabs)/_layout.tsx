@@ -105,8 +105,9 @@ export default function TabLayout() {
   const { loading, rules } = useTabVisibilityRules();
   const effectiveRules = loading ? DEFAULT_TAB_CONFIG : rules;
 
-  useRestoreLastTab((tabName) =>
-    shouldShowTab(tabName, email, isAuthenticated, effectiveRules)
+  useRestoreLastTab(
+    (tabName) => shouldShowTab(tabName, email, isAuthenticated, effectiveRules),
+    !loading
   );
 
   return (

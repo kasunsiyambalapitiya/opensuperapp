@@ -32,6 +32,8 @@ export interface AuthState {
   sessionStatus: SessionStatus;
   /** The session that ended was lost to a rotation whose reply never arrived. */
   rotationLost: boolean;
+  /** endSession is still clearing the device; signing in now would be cleared too. */
+  isEndingSession: boolean;
 }
 
 export type { SessionStatus };
@@ -45,6 +47,7 @@ const initialState: AuthState = {
   isLoading: false,
   sessionStatus: "restoring",
   rotationLost: false,
+  isEndingSession: false,
 };
 
 const SIGNED_IN_STATUSES: SessionStatus[] = [
@@ -145,6 +148,9 @@ const authSlice = createSlice({
       state.rotationLost =
         action.payload.status === "expired" && action.payload.rotationLost;
     },
+    setEndingSession: (state, action: PayloadAction<boolean>) => {
+      state.isEndingSession = action.payload;
+    },
     setSessionStatus: (state, action: PayloadAction<SessionStatus>) => {
       // Only a sign-in (setAuth) starts a new session. A refresh still in flight when
       // the last one ended must not bring it back.
@@ -207,6 +213,7 @@ export const {
   setAuth,
   setRefreshedAuth,
   setSessionEnd,
+  setEndingSession,
   setSessionStatus,
   resetAll,
 } = authSlice.actions;

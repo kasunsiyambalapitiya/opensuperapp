@@ -43,6 +43,11 @@ const SessionExpiredPrompt = () => {
   const rotationLost = useSelector(
     (state: RootState) => state.auth.rotationLost
   );
+  // A sign-in started while the expired session is still being cleared would be cleared
+  // with it.
+  const isEndingSession = useSelector(
+    (state: RootState) => state.auth.isEndingSession
+  );
   const [dismissed, setDismissed] = useState(false);
 
   // Cleared on the way into an expiry rather than on the way out: iOS reports the modal
@@ -55,7 +60,7 @@ const SessionExpiredPrompt = () => {
 
   return (
     <SignInModal
-      visible={isExpired && !dismissed}
+      visible={isExpired && !isEndingSession && !dismissed}
       onClose={() => setDismissed(true)}
       title={title}
       message={message}

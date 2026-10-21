@@ -253,6 +253,31 @@ describe("MicroApp token requests", () => {
     }
   );
 
+  it("answers a token request made during startup from the same exchange", async () => {
+    let finishStartup!: (result: unknown) => void;
+    mockTokenExchange
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishStartup = resolve;
+        })
+      )
+      // A second exchange, had one been started, would have failed.
+      .mockResolvedValue(null);
+    const { tree } = await mount();
+
+    await postFromMicroApp(tree, "token");
+    await act(async () => {
+      finishStartup({ accessToken: "exchanged-access", idToken: "exchanged-id" });
+    });
+
+    expect(mockTokenExchange).toHaveBeenCalledTimes(1);
+    expect(injected()).toContain(
+      'window.nativebridge.resolveToken("exchanged-access");'
+    );
+    expect(injected().some((s) => s.includes("rejectToken("))).toBe(false);
+    expect(texts(tree).join(" ")).not.toMatch(/try again/i);
+  });
+
   it("tells the micro app when the token it opened with could not be had", async () => {
     mockTokenExchange.mockResolvedValue(null);
 

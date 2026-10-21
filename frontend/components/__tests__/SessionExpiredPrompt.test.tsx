@@ -45,7 +45,11 @@ jest.mock("react-redux", () =>
   require("react-redux/alternate-renderers")
 );
 
-type AuthSnapshot = { sessionStatus: SessionStatus; rotationLost: boolean };
+type AuthSnapshot = {
+  sessionStatus: SessionStatus;
+  rotationLost: boolean;
+  isEndingSession?: boolean;
+};
 type SetAuth = { type: "set"; auth: AuthSnapshot };
 
 const buildStore = (auth: AuthSnapshot) =>
@@ -56,8 +60,12 @@ const buildStore = (auth: AuthSnapshot) =>
     ) => (action.type === "set" ? { auth: (action as SetAuth).auth } : state)
   );
 
-const mount = (sessionStatus: SessionStatus, rotationLost = false) => {
-  const store = buildStore({ sessionStatus, rotationLost });
+const mount = (
+  sessionStatus: SessionStatus,
+  rotationLost = false,
+  isEndingSession = false
+) => {
+  const store = buildStore({ sessionStatus, rotationLost, isEndingSession });
   let tree!: ReactTestRenderer;
   act(() => {
     tree = create(
@@ -73,7 +81,14 @@ const mount = (sessionStatus: SessionStatus, rotationLost = false) => {
         auth: { sessionStatus: status, rotationLost },
       });
     });
-  return { tree, setStatus };
+  const finishEnding = () =>
+    act(() => {
+      store.dispatch({
+        type: "set",
+        auth: { sessionStatus, rotationLost, isEndingSession: false },
+      });
+    });
+  return { tree, setStatus, finishEnding };
 };
 
 const texts = (tree: ReactTestRenderer) =>
@@ -114,6 +129,15 @@ describe("SessionExpiredPrompt", () => {
   ])("stays out of the way when the session is %s", (status) => {
     // A sign-out was the user's own doing, and a degraded session is still theirs.
     expect(isShown(mount(status).tree)).toBe(false);
+  });
+
+  it("waits for the expired session to be cleared before offering a sign-in", () => {
+    const { tree, finishEnding } = mount("expired", false, true);
+    expect(isShown(tree)).toBe(false);
+
+    finishEnding();
+
+    expect(isShown(tree)).toBe(true);
   });
 
   it("says the sign-in was lost to the connection when that is what happened", () => {

@@ -258,6 +258,45 @@ describe("endSession('expired')", () => {
   });
 });
 
+describe("a sign-in while the session is still being cleared", () => {
+  it("holds the sign-in prompt back until the clearing is done", async () => {
+    const { store } = buildSignedInStore();
+
+    const ending = store.dispatch(endSession(EXPIRED));
+    expect(store.getState().auth.sessionStatus).toBe("expired");
+    expect(store.getState().auth.isEndingSession).toBe(true);
+
+    await ending;
+    expect(store.getState().auth.isEndingSession).toBe(false);
+  });
+
+  it("is left alone by the clearing still in progress", async () => {
+    const { store, actions } = buildSignedInStore();
+    let finishPurge!: () => void;
+    mockPurge.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishPurge = resolve;
+      })
+    );
+
+    const ending = store.dispatch(endSession(EXPIRED));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mockPurge).toHaveBeenCalled();
+
+    const newSession = { ...STORED, accessToken: "new-access-token" };
+    store.dispatch(setAuth(newSession));
+    finishPurge();
+    await ending;
+
+    expect(clearNotifications).not.toHaveBeenCalled();
+    expect(actionTypes(actions)).not.toContain("auth/resetAll");
+    const { auth } = store.getState();
+    expect(auth.sessionStatus).toBe("authenticated");
+    expect(auth.accessToken).toBe("new-access-token");
+    expect(auth.isEndingSession).toBe(false);
+  });
+});
+
 describe("each local step is independent", () => {
   it.each([
     ["clearing the tokens", () => clearAuthDataFromSecureStore as jest.Mock],
