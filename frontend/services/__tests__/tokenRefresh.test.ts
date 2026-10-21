@@ -19,7 +19,10 @@
 // connection, a 5xx, a captive portal, a timeout - none of those are a verdict
 // on the session, and none of them may log anyone out.
 import type { AuthData, SessionSignal } from "@/types/auth.types";
-import { refreshAccessToken } from "@/services/tokenRefresh";
+import {
+  forgetUnsavedTokens,
+  refreshAccessToken,
+} from "@/services/tokenRefresh";
 import { Event } from "@/constants/enums/Event";
 import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { Alert } from "react-native";
@@ -162,6 +165,7 @@ let signals: SessionSignal[];
 const expiries = () => signals.filter((s) => s.status === "expired").length;
 
 beforeEach(() => {
+  forgetUnsavedTokens();
   mockFetch.mockReset();
   alertMock.mockClear();
 
@@ -432,6 +436,68 @@ describe("a refresh that lands after the session changed", () => {
     expect(result).toBeNull();
     expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
     expect(signals.some((s) => s.status === "authenticated")).toBe(false);
+  });
+});
+
+// The server rotates the refresh token on every exchange, so once a new set could not be
+// stored the token on disk is dead. Sending it would end a session that is still live.
+describe("a refresh whose tokens could not be stored", () => {
+  const sentRefreshToken = (call: number) =>
+    new URLSearchParams(mockFetch.mock.calls[call][1].body).get(
+      "refresh_token"
+    );
+  const NEXT_TOKENS = { ...ISSUED_TOKENS, refresh_token: "next-refresh-token" };
+
+  beforeEach(async () => {
+    mockFetch.mockResolvedValueOnce(response(200, ISSUED_TOKENS));
+    mockSaveAuthDataToSecureStore.mockRejectedValueOnce(new Error("keychain"));
+    await refreshAccessToken();
+  });
+
+  it("sends the issued refresh token next time, not the dead one on disk", async () => {
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe("new-refresh-token");
+    expect(result?.refreshToken).toBe("next-refresh-token");
+    expect(mockSaveAuthDataToSecureStore).toHaveBeenLastCalledWith(
+      expect.objectContaining({ refreshToken: "next-refresh-token" })
+    );
+  });
+
+  it("goes back to the token on disk once a later set is stored", async () => {
+    mockFetch.mockResolvedValue(response(200, NEXT_TOKENS));
+    await refreshAccessToken();
+    mockLoadAuthDataFromSecureStore.mockResolvedValue({
+      ...storedAuth,
+      refreshToken: "next-refresh-token",
+    });
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(2)).toBe("next-refresh-token");
+  });
+
+  it("drops it once a new sign-in has put another token on disk", async () => {
+    mockLoadAuthDataFromSecureStore.mockResolvedValue({
+      ...storedAuth,
+      refreshToken: "signed-in-again",
+    });
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe("signed-in-again");
+  });
+
+  it("drops it when the session ends", async () => {
+    forgetUnsavedTokens();
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe(OLD_REFRESH_TOKEN);
   });
 });
 

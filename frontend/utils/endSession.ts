@@ -30,6 +30,7 @@ import {
 } from "@/context/slices/deviceSlice";
 import { persistor } from "@/context/store";
 import { clearNotifications } from "@/services/scheduledNotifications";
+import { forgetUnsavedTokens } from "@/services/tokenRefresh";
 import { SessionEnd } from "@/types/auth.types";
 import {
   clearAuthDataFromSecureStore,
@@ -95,6 +96,7 @@ export const endSession = createAsyncThunk<
     const isSuperseded = () => !selectHasSessionEnded(getState());
     const clearingSteps: [string, () => unknown][] = [
       ["clearing tokens", clearAuthDataFromSecureStore],
+      ["forgetting tokens held only in memory", forgetUnsavedTokens],
       ["clearing exchanged tokens", () => clearAllExchangedTokens(appIds)],
       ["clearing user info", () => deleteItemAsync(USER_INFO)],
       ["purging persisted state", () => persistor.purge()],

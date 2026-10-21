@@ -56,6 +56,27 @@ const OFFLINE_WAIT_TIMEOUT_MS = 30000;
 
 let refreshPromise: Promise<AuthData | null> | null = null;
 
+// A set the server issued that SecureStore would not take. The server has already
+// rotated the token on disk away, so the next refresh has to send this one instead.
+// Keyed on the disk token it replaces: once that changes - signed out, or signed in
+// again - this belongs to a session that is over.
+let unsaved: { replaces: string; authData: AuthData } | null = null;
+
+/** Drops tokens held only in memory. Called when a session ends. */
+export const forgetUnsavedTokens = (): void => {
+  unsaved = null;
+};
+
+const loadLatestAuthData = async (): Promise<{
+  diskRefreshToken: string | undefined;
+  authData: AuthData | null;
+}> => {
+  const onDisk = await loadAuthDataFromSecureStore();
+  const diskRefreshToken = onDisk?.refreshToken;
+  if (unsaved && unsaved.replaces !== diskRefreshToken) unsaved = null;
+  return { diskRefreshToken, authData: unsaved?.authData ?? onDisk };
+};
+
 type TokenResponse = {
   access_token?: string;
   id_token?: string;
@@ -221,8 +242,9 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
 
   refreshPromise = (async () => {
     try {
-      const storedData = await loadAuthDataFromSecureStore();
-      if (!storedData?.refreshToken) return null;
+      const { diskRefreshToken, authData: storedData } =
+        await loadLatestAuthData();
+      if (!diskRefreshToken || !storedData?.refreshToken) return null;
 
       if (!TOKEN_URL) {
         console.error(
@@ -259,17 +281,23 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
       // The session may have ended, or a new one begun, while the request was out.
       // Saving now would put a dead session back on disk and in Redux.
       const current = await loadAuthDataFromSecureStore();
-      if (current?.refreshToken !== storedData.refreshToken) return null;
+      if (current?.refreshToken !== diskRefreshToken) {
+        unsaved = null;
+        return null;
+      }
 
       try {
         await saveAuthDataToSecureStore(updatedAuthData as SecureAuthData);
+        unsaved = null;
         await clearInterruptedRefresh();
       } catch (err) {
         // The server has already rotated the stored refresh token away, so the new set
-        // lives only in memory: it is still handed to the caller and to Redux. When the
-        // dead token on disk is tried later, its invalid_grant is a lost rotation, not
-        // an ordinary expiry.
+        // lives only in memory: it is handed to the caller and to Redux, and the next
+        // refresh sends it rather than the dead token on disk. If the app is killed
+        // before a save succeeds, that dead token's invalid_grant is a lost rotation,
+        // not an ordinary expiry.
         console.error("Token refresh: issued tokens could not be stored", err);
+        unsaved = { replaces: diskRefreshToken, authData: updatedAuthData };
         await markRefreshInterrupted();
       }
 

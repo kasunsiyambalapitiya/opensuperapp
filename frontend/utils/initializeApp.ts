@@ -15,7 +15,7 @@
 // under the License.
 import { APPS, USER_INFO } from "@/constants/Constants";
 import { setApps } from "@/context/slices/appSlice";
-import { restoreAuth } from "@/context/slices/authSlice";
+import { restoreAuth, setSessionEnd } from "@/context/slices/authSlice";
 import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { setUserInfo } from "@/context/slices/userInfoSlice";
 import { getVersions } from "@/context/slices/versionSlice";
@@ -28,8 +28,18 @@ import { getItemAsync } from "expo-secure-store";
 
 /** The cold-start sequence the root layout runs once, before hiding the splash. */
 export const initializeApp = async (dispatch: AppDispatch): Promise<void> => {
+  // Unlike every other step, this one decides whether the credentials on disk belong to
+  // this install at all. If it could not tell, they may be the last user's, left behind
+  // by an uninstall, so nothing is restored: the session settles as signed out instead.
+  let isInstallVerified = true;
   try {
     await handleFreshInstall();
+  } catch (error) {
+    console.error("Fresh-install check failed:", error);
+    isInstallVerified = false;
+  }
+
+  try {
     await runMigrations(); // Runs any migrations.
     const [savedApps, savedUserInfo] = await Promise.all([
       AsyncStorage.getItem(APPS),
@@ -40,7 +50,8 @@ export const initializeApp = async (dispatch: AppDispatch): Promise<void> => {
       dispatch(setApps(await buildAppsWithTokens(JSON.parse(savedApps))));
     }
 
-    if (savedUserInfo) {
+    // User info lives in SecureStore too, so it is as suspect as the tokens.
+    if (savedUserInfo && isInstallVerified) {
       dispatch(setUserInfo(JSON.parse(savedUserInfo)));
     }
 
@@ -50,8 +61,13 @@ export const initializeApp = async (dispatch: AppDispatch): Promise<void> => {
     console.error("Initialization error:", error);
   }
 
-  // Whatever happened above: until this runs the session is "restoring", which every
-  // screen reads as neither signed in nor signed out.
+  // Whatever happened above, the session has to settle: until it does it is
+  // "restoring", which every screen reads as neither signed in nor signed out.
+  if (!isInstallVerified) {
+    dispatch(setSessionEnd({ status: "signedOut" }));
+    return;
+  }
+
   try {
     await dispatch(restoreAuth()).unwrap();
   } catch (error) {

@@ -18,6 +18,7 @@ import { runMigrations } from "@/migrations/migrator";
 import { handleFreshInstall } from "@/utils/freshInstall";
 import { initializeApp } from "@/utils/initializeApp";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getItemAsync } from "expo-secure-store";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -48,6 +49,7 @@ jest.mock("@/context/slices/userConfigSlice", () => ({
 }));
 jest.mock("@/context/slices/authSlice", () => ({
   restoreAuth: () => ({ type: "auth/restoreAuth" }),
+  setSessionEnd: (payload: unknown) => ({ type: "auth/setSessionEnd", payload }),
 }));
 
 const dispatched = (dispatch: jest.Mock) =>
@@ -99,6 +101,28 @@ describe("initializeApp", () => {
     await initializeApp(dispatch as unknown as AppDispatch);
 
     expect(dispatched(dispatch)).toContain("auth/restoreAuth");
+  });
+
+  // A failed marker read leaves whatever survived an uninstall in SecureStore, which may
+  // be the previous user's session.
+  it("settles signed out, restoring nothing, when the fresh-install check fails", async () => {
+    (handleFreshInstall as jest.Mock).mockRejectedValueOnce(
+      new Error("marker read")
+    );
+    (getItemAsync as jest.Mock).mockResolvedValueOnce(
+      JSON.stringify({ name: "previous user" })
+    );
+    const dispatch = buildDispatch();
+
+    await initializeApp(dispatch as unknown as AppDispatch);
+
+    expect(dispatched(dispatch)).not.toContain("auth/restoreAuth");
+    expect(dispatched(dispatch)).not.toContain("userInfo/set");
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "auth/setSessionEnd",
+      payload: { status: "signedOut" },
+    });
+    expect(runMigrations).toHaveBeenCalled();
   });
 
   it("settles when the restore itself fails", async () => {

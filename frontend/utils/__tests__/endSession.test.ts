@@ -19,6 +19,7 @@
 // happened to the one before, and only then is Asgardeo told, best effort.
 import authReducer, { setAuth } from "@/context/slices/authSlice";
 import { clearNotifications } from "@/services/scheduledNotifications";
+import { forgetUnsavedTokens } from "@/services/tokenRefresh";
 import {
   clearAuthDataFromSecureStore,
   loadAuthDataFromSecureStore,
@@ -76,7 +77,10 @@ jest.mock("@/context/slices/deviceSlice", () => ({
 }));
 // authSlice's own thunks reach for these; endSession does not.
 jest.mock("@/services/authService", () => ({ loadAuthData: jest.fn() }));
-jest.mock("@/services/tokenRefresh", () => ({ refreshAccessToken: jest.fn() }));
+jest.mock("@/services/tokenRefresh", () => ({
+  refreshAccessToken: jest.fn(),
+  forgetUnsavedTokens: jest.fn(),
+}));
 jest.mock("@/context/slices/appConfigSlice", () => ({
   getAppConfigurations: jest.fn(),
 }));
@@ -121,6 +125,8 @@ const alertMock = () => Alert.alert as jest.Mock;
 /** Every local step endSession is responsible for, as mocks that can be asserted. */
 const localSteps = () => [
   clearAuthDataFromSecureStore as jest.Mock,
+  // A set SecureStore refused lives only in tokenRefresh's memory.
+  forgetUnsavedTokens as jest.Mock,
   clearAllExchangedTokens as jest.Mock,
   deleteItemAsync as jest.Mock,
   mockPurge,
