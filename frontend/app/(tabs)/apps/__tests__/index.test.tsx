@@ -105,10 +105,12 @@ const baseState = {
 const buildStore = (
   sessionStatus: SessionStatus,
   accessToken: string | null,
-  configs: { configKey: string; value: unknown }[] = []
+  configs: { configKey: string; value: unknown }[] = [],
+  apps: unknown[] = []
 ) =>
   createStore(() => ({
     ...baseState,
+    apps: { ...baseState.apps, apps },
     auth: { ...baseState.auth, sessionStatus, accessToken },
     appConfig: { ...baseState.appConfig, configs },
   }));
@@ -116,9 +118,10 @@ const buildStore = (
 const renderHomeScreen = async (
   sessionStatus: SessionStatus,
   accessToken: string | null = null,
-  configs: { configKey: string; value: unknown }[] = []
+  configs: { configKey: string; value: unknown }[] = [],
+  apps: unknown[] = []
 ) => {
-  const store = buildStore(sessionStatus, accessToken, configs);
+  const store = buildStore(sessionStatus, accessToken, configs, apps);
   let renderer: ReactTestRenderer;
 
   jest.useFakeTimers();
@@ -201,6 +204,16 @@ describe("HomeScreen initial load", () => {
 
     await setOnline(true);
     expect(loadMicroAppDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches on reconnect even when an offline start left stored apps on screen", async () => {
+    const storedApp = { appId: "stored-app", name: "Stored App", versions: [] };
+    await renderHomeScreen("degraded", null, [], [storedApp]);
+    await setOnline(false);
+    expect(loadMicroAppDetails).not.toHaveBeenCalled();
+
+    await setOnline(true);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
   });
 
   it("does not load the apps again while the connection holds", async () => {

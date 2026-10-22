@@ -173,12 +173,17 @@ export default function HomeScreen() {
   // Load micro apps and user configurations if they haven't been initialized yet. Again
   // on reconnect: a session restored offline stays signed in, so isSignedIn never changes
   const reconnectCount = useReconnectCount();
+  const handledReconnectCount = useRef(reconnectCount);
   useEffect(() => {
+    // A list on screen after an offline start came from disk, so a reconnect fetches anyway
+    const isReconnect = reconnectCount !== handledReconnectCount.current;
+    handledReconnectCount.current = reconnectCount;
+
     const initializeApp = async () => {
       if (!isSignedIn) return; // Prevent loading micro apps into UI when logged out
 
       try {
-        if (!apps || apps.length === 0) {
+        if (isReconnect || !apps || apps.length === 0) {
           await loadMicroAppDetails(
             dispatch,
             (appId: string) => {
