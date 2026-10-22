@@ -47,6 +47,9 @@ jest.mock("@expo/vector-icons", () => ({
 jest.mock("react-redux", () => require("react-redux/alternate-renderers"));
 
 import SignInMessage from "@/components/SignInMessage";
+import { APP_UPDATE_CHECK_TIMESTAMP_KEY } from "@/constants/Constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { SessionStatus } from "@/types/auth.types";
 import React from "react";
 import { FlatList } from "react-native";
@@ -79,18 +82,21 @@ const baseState = {
 
 const buildStore = (
   sessionStatus: SessionStatus,
-  accessToken: string | null
+  accessToken: string | null,
+  configs: { configKey: string; value: unknown }[] = []
 ) =>
   createStore(() => ({
     ...baseState,
     auth: { ...baseState.auth, sessionStatus, accessToken },
+    appConfig: { ...baseState.appConfig, configs },
   }));
 
 const renderHomeScreen = async (
   sessionStatus: SessionStatus,
-  accessToken: string | null = null
+  accessToken: string | null = null,
+  configs: { configKey: string; value: unknown }[] = []
 ) => {
-  const store = buildStore(sessionStatus, accessToken);
+  const store = buildStore(sessionStatus, accessToken, configs);
   let renderer: ReactTestRenderer;
 
   jest.useFakeTimers();
@@ -169,5 +175,46 @@ describe("HomeScreen initial load", () => {
   it("does not load the apps once the session has ended", async () => {
     await renderHomeScreen("expired", null);
     expect(loadMicroAppDetails).not.toHaveBeenCalled();
+  });
+});
+
+describe("HomeScreen update check on focus", () => {
+  const { loadMicroAppDetails } = jest.requireMock(
+    "@/services/appStoreService"
+  ) as { loadMicroAppDetails: jest.Mock };
+  const updateConfigs = [
+    { configKey: "isForceUpdate", value: true },
+    { configKey: "microappsUpdateCheckInterval", value: 3600 },
+  ];
+
+  beforeEach(async () => {
+    loadMicroAppDetails.mockReset();
+    await AsyncStorage.clear();
+    // Run the focus callback once on mount, as a focused screen would.
+    (useFocusEffect as jest.Mock).mockImplementation((callback) =>
+      React.useEffect(callback, [callback])
+    );
+  });
+
+  afterEach(() => {
+    (useFocusEffect as jest.Mock).mockReset();
+  });
+
+  it("records the check when the app list was fetched", async () => {
+    loadMicroAppDetails.mockResolvedValue(true);
+    await renderHomeScreen("authenticated", "some-token", updateConfigs);
+
+    expect(
+      await AsyncStorage.getItem(APP_UPDATE_CHECK_TIMESTAMP_KEY)
+    ).not.toBeNull();
+  });
+
+  it("does not record the check when the fetch did not get through", async () => {
+    // A degraded session can be signed in with no usable network or token.
+    loadMicroAppDetails.mockResolvedValue(false);
+    await renderHomeScreen("degraded", null, updateConfigs);
+
+    expect(loadMicroAppDetails).toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(APP_UPDATE_CHECK_TIMESTAMP_KEY)).toBeNull();
   });
 });

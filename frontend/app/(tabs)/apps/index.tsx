@@ -140,7 +140,7 @@ export default function HomeScreen() {
             return;
           }
           isCheckingUpdates.current = true;
-          await loadMicroAppDetails(
+          const checked = await loadMicroAppDetails(
             dispatch,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
@@ -149,6 +149,8 @@ export default function HomeScreen() {
               setUpdatingApps((prev) => prev.filter((id) => id !== appId));
             }
           );
+          // Only a fetch that got through counts; a failed one retries on the next focus
+          if (!checked) return;
           // Store the current timestamp after successful check
           await AsyncStorage.setItem(
             APP_UPDATE_CHECK_TIMESTAMP_KEY,
