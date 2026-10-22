@@ -23,15 +23,14 @@ import { SUPER_APP_DEVELOPER_GROUP } from "@/constants/Constants";
 import { Event } from "@/constants/enums/Event";
 import { ScreenPaths } from "@/constants/ScreenPaths";
 import { selectIsSignedIn } from "@/context/slices/authSlice";
-import { disableFCMToken } from "@/context/slices/deviceSlice";
 import { getUserInfo } from "@/context/slices/userInfoSlice";
 import { AppDispatch, RootState } from "@/context/store";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import { useWalletPassConfig } from "@/hooks/useWalletPassConfig";
 import { BasicUserInfo } from "@/types/basicUserInfo.types";
 import { DecodedAccessToken } from "@/types/decodeAccessToken.types";
-import { endSession } from "@/utils/endSession";
 import { authEmitter } from "@/utils/eventEmitter";
+import { signOut } from "@/utils/signOut";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useNavigation } from "expo-router";
@@ -142,10 +141,7 @@ const SettingsScreen = () => {
         {
           text: "Sign Out",
           style: "destructive",
-          onPress: async () => {
-            await dispatch(disableFCMToken());
-            await dispatch(endSession({ status: "signedOut" }));
-          },
+          onPress: () => signOut(dispatch),
         },
       ]
     );

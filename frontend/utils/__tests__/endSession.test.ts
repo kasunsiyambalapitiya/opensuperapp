@@ -19,12 +19,14 @@
 // happened to the one before, and only then is Asgardeo told, best effort.
 import authReducer, { setAuth } from "@/context/slices/authSlice";
 import { clearNotifications } from "@/services/scheduledNotifications";
+import { forgetUnsavedTokens } from "@/services/tokenRefresh";
 import {
   clearAuthDataFromSecureStore,
   loadAuthDataFromSecureStore,
 } from "@/utils/authTokenStore";
 import { endSession } from "@/utils/endSession";
 import { clearAllExchangedTokens } from "@/utils/exchangedTokenStore";
+import { clearInterruptedRefresh } from "@/utils/rotationGuard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { configureStore, UnknownAction } from "@reduxjs/toolkit";
 import { deleteItemAsync } from "expo-secure-store";
@@ -50,6 +52,9 @@ jest.mock("@/utils/authTokenStore", () => ({
 jest.mock("@/utils/exchangedTokenStore", () => ({
   clearAllExchangedTokens: jest.fn(),
 }));
+jest.mock("@/utils/rotationGuard", () => ({
+  clearInterruptedRefresh: jest.fn(),
+}));
 jest.mock("@/services/scheduledNotifications", () => ({
   clearNotifications: jest.fn(),
 }));
@@ -72,7 +77,10 @@ jest.mock("@/context/slices/deviceSlice", () => ({
 }));
 // authSlice's own thunks reach for these; endSession does not.
 jest.mock("@/services/authService", () => ({ loadAuthData: jest.fn() }));
-jest.mock("@/services/tokenRefresh", () => ({ refreshAccessToken: jest.fn() }));
+jest.mock("@/services/tokenRefresh", () => ({
+  refreshAccessToken: jest.fn(),
+  forgetUnsavedTokens: jest.fn(),
+}));
 jest.mock("@/context/slices/appConfigSlice", () => ({
   getAppConfigurations: jest.fn(),
 }));
@@ -117,10 +125,14 @@ const alertMock = () => Alert.alert as jest.Mock;
 /** Every local step endSession is responsible for, as mocks that can be asserted. */
 const localSteps = () => [
   clearAuthDataFromSecureStore as jest.Mock,
+  // A set SecureStore refused lives only in tokenRefresh's memory.
+  forgetUnsavedTokens as jest.Mock,
   clearAllExchangedTokens as jest.Mock,
   deleteItemAsync as jest.Mock,
   mockPurge,
   clearNotifications as jest.Mock,
+  // A lost rotation explains the end of this session, not the next one's.
+  clearInterruptedRefresh as jest.Mock,
 ];
 
 beforeEach(async () => {

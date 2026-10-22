@@ -19,7 +19,10 @@
 // connection, a 5xx, a captive portal, a timeout - none of those are a verdict
 // on the session, and none of them may log anyone out.
 import type { AuthData, SessionSignal } from "@/types/auth.types";
-import { refreshAccessToken } from "@/services/tokenRefresh";
+import {
+  forgetUnsavedTokens,
+  refreshAccessToken,
+} from "@/services/tokenRefresh";
 import { Event } from "@/constants/enums/Event";
 import { authEmitter, reachabilityEmitter } from "@/utils/eventEmitter";
 import { Alert } from "react-native";
@@ -162,6 +165,7 @@ let signals: SessionSignal[];
 const expiries = () => signals.filter((s) => s.status === "expired").length;
 
 beforeEach(() => {
+  forgetUnsavedTokens();
   mockFetch.mockReset();
   alertMock.mockClear();
 
@@ -379,31 +383,6 @@ describe("refreshAccessToken", () => {
     expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ["the session ended", null],
-    [
-      "a new session began",
-      { ...storedAuth, refreshToken: "next-session-refresh-token" },
-    ],
-  ])(
-    "drops the new tokens when %s while the request was out",
-    async (_, storedAfterRequest) => {
-      mockFetch.mockImplementation(async () => {
-        mockLoadAuthDataFromSecureStore.mockResolvedValue(storedAfterRequest);
-        return response(200, ISSUED_TOKENS);
-      });
-
-      const result = await refreshAccessToken();
-
-      expect(result).toBeNull();
-      expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
-      expect(signals).not.toContainEqual(
-        expect.objectContaining({ status: "authenticated" })
-      );
-      expect(expiries()).toBe(0);
-    }
-  );
-
   it("keeps a token set the server issued even when its claims will not decode", async () => {
     // The 200 means the server may already have rotated the old refresh token
     // away. Dropping the replacement over an unreadable JWT is what strands the
@@ -427,6 +406,98 @@ describe("refreshAccessToken", () => {
       })
     );
     expect(expiries()).toBe(0);
+  });
+});
+
+// A refresh can take seconds; the user may sign out, or the session expire, before it
+// lands. Writing its tokens back then would bring a session nobody owns back to life.
+describe("a refresh that lands after the session changed", () => {
+  it("neither stores nor reports its tokens once the session has ended", async () => {
+    mockLoadAuthDataFromSecureStore
+      .mockResolvedValueOnce(storedAuth)
+      .mockResolvedValueOnce(null);
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(result).toBeNull();
+    expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
+    expect(signals.some((s) => s.status === "authenticated")).toBe(false);
+  });
+
+  it("does not overwrite the tokens of a newer sign-in", async () => {
+    mockLoadAuthDataFromSecureStore
+      .mockResolvedValueOnce(storedAuth)
+      .mockResolvedValueOnce({ ...storedAuth, refreshToken: "signed-in-again" });
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(result).toBeNull();
+    expect(mockSaveAuthDataToSecureStore).not.toHaveBeenCalled();
+    expect(signals.some((s) => s.status === "authenticated")).toBe(false);
+  });
+});
+
+// The server rotates the refresh token on every exchange, so once a new set could not be
+// stored the token on disk is dead. Sending it would end a session that is still live.
+describe("a refresh whose tokens could not be stored", () => {
+  const sentRefreshToken = (call: number) =>
+    new URLSearchParams(mockFetch.mock.calls[call][1].body).get(
+      "refresh_token"
+    );
+  const NEXT_TOKENS = { ...ISSUED_TOKENS, refresh_token: "next-refresh-token" };
+
+  beforeEach(async () => {
+    mockFetch.mockResolvedValueOnce(response(200, ISSUED_TOKENS));
+    mockSaveAuthDataToSecureStore.mockRejectedValueOnce(new Error("keychain"));
+    await refreshAccessToken();
+  });
+
+  it("sends the issued refresh token next time, not the dead one on disk", async () => {
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe("new-refresh-token");
+    expect(result?.refreshToken).toBe("next-refresh-token");
+    expect(mockSaveAuthDataToSecureStore).toHaveBeenLastCalledWith(
+      expect.objectContaining({ refreshToken: "next-refresh-token" })
+    );
+  });
+
+  it("goes back to the token on disk once a later set is stored", async () => {
+    mockFetch.mockResolvedValue(response(200, NEXT_TOKENS));
+    await refreshAccessToken();
+    mockLoadAuthDataFromSecureStore.mockResolvedValue({
+      ...storedAuth,
+      refreshToken: "next-refresh-token",
+    });
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(2)).toBe("next-refresh-token");
+  });
+
+  it("drops it once a new sign-in has put another token on disk", async () => {
+    mockLoadAuthDataFromSecureStore.mockResolvedValue({
+      ...storedAuth,
+      refreshToken: "signed-in-again",
+    });
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe("signed-in-again");
+  });
+
+  it("drops it when the session ends", async () => {
+    forgetUnsavedTokens();
+    mockFetch.mockResolvedValueOnce(response(200, NEXT_TOKENS));
+
+    await refreshAccessToken();
+
+    expect(sentRefreshToken(1)).toBe(OLD_REFRESH_TOKEN);
   });
 });
 
@@ -615,14 +686,23 @@ describe("what the refresh reports about the session", () => {
     expect(expiries()).toBe(1);
   });
 
-  it("reports degraded when the new tokens cannot be stored", async () => {
+  it("still uses the new tokens when they cannot be stored, and remembers the rotation", async () => {
+    // The server has rotated the old refresh token away; the new one now lives only in
+    // memory. Use it while the app runs, and record that the one on disk may be dead so
+    // a later invalid_grant is explained as a lost rotation rather than a plain expiry.
     mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
     mockSaveAuthDataToSecureStore.mockRejectedValue(new Error("keychain"));
 
     const result = await refreshAccessToken();
 
-    expect(result).toBeNull();
-    expect(signals).toEqual([{ status: "refreshing" }, { status: "degraded" }]);
+    expect(result?.accessToken).toBe("new-access-token");
+    expect(result?.refreshToken).toBe("new-refresh-token");
+    expect(signals).toEqual([
+      { status: "refreshing" },
+      { status: "authenticated", authData: result },
+    ]);
+    expect(mockMarkRefreshInterrupted).toHaveBeenCalled();
+    expect(mockClearInterruptedRefresh).not.toHaveBeenCalled();
   });
 
   it("reports nothing when there is no session to refresh", async () => {

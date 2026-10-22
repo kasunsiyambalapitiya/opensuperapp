@@ -14,10 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { Event } from "@/constants/enums/Event";
-import {
-  setRefreshedAuth,
-  setSessionStatus,
-} from "@/context/slices/authSlice";
+import { setRefreshedAuth, setSessionStatus } from "@/context/slices/authSlice";
 import { AppDispatch } from "@/context/store";
 import { endSession } from "@/utils/endSession";
 import { authEmitter } from "@/utils/eventEmitter";

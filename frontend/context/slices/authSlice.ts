@@ -93,8 +93,9 @@ export const restoreAuth = createAsyncThunk(
     }
 
     // Dispatched now rather than on fulfilled so screens are not held behind the
-    // app configurations request below.
-    dispatch(setAuth(authData));
+    // app configurations request below. Not setAuth: a session that ended while this
+    // was loading stays ended.
+    dispatch(setRefreshedAuth(authData));
     try {
       await dispatch(getAppConfigurations()).unwrap();
     } catch (configError) {
@@ -167,6 +168,11 @@ const authSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(restoreAuth.fulfilled, (state, action) => {
+        // Signed out or expired while restoring: the restored tokens are stale.
+        if (ENDED_STATUSES.includes(state.sessionStatus)) {
+          state.isLoading = false;
+          return;
+        }
         if (action.payload) {
           state.accessToken = action.payload.accessToken;
           state.refreshToken = action.payload.refreshToken;

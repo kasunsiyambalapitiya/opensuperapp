@@ -42,8 +42,8 @@ jest.mock("@/context/slices/userInfoSlice", () => ({
 }));
 // Pulls in appSlice -> exchangedTokenStore -> AsyncStorage, whose native
 // module isn't linked in this Jest environment.
-jest.mock("@/utils/endSession", () => ({
-  endSession: jest.fn(),
+jest.mock("@/utils/signOut", () => ({
+  signOut: jest.fn(),
 }));
 jest.mock("@/context/slices/authSlice", () => ({
   selectIsSignedIn: (state: { auth: { sessionStatus: string } }) =>

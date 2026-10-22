@@ -30,6 +30,7 @@ import {
   SecureAuthData,
 } from "@/utils/authTokenStore";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
+import { clearInterruptedRefresh } from "@/utils/rotationGuard";
 import { isTokenExpired } from "@/utils/tokenExpiry";
 import axios from "axios";
 import { jwtDecode } from "jwt-decode";
@@ -265,6 +266,8 @@ export const processNativeAuthResult = async (
       };
 
       await saveAuthDataToSecureStore(authData as SecureAuthData);
+      // A new session: an interrupted refresh from the last one says nothing about it.
+      await clearInterruptedRefresh();
       return authData;
     } else {
       console.error("Missing required tokens in auth result");

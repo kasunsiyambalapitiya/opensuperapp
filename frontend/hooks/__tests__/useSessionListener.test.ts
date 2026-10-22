@@ -84,6 +84,7 @@ describe("useSessionListener", () => {
     });
 
     expect(mockDispatch).toHaveBeenCalledTimes(1);
+    // Not setAuth: a refresh landing after the session ended must not revive it.
     expect(mockDispatch).toHaveBeenCalledWith({
       type: "auth/setRefreshedAuth",
       payload: AUTH_DATA,
