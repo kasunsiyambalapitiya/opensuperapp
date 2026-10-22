@@ -30,6 +30,7 @@ import { MicroApp } from "@/context/slices/appSlice";
 import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import {
   downloadMicroApp,
@@ -169,7 +170,9 @@ export default function HomeScreen() {
     }, [dispatch, isSignedIn, isForceUpdate, updateCheckIntervalMs])
   );
 
-  // Load micro apps and user configurations if they haven't been initialized yet
+  // Load micro apps and user configurations if they haven't been initialized yet. Again
+  // on reconnect: a session restored offline stays signed in, so isSignedIn never changes
+  const reconnectCount = useReconnectCount();
   useEffect(() => {
     const initializeApp = async () => {
       if (!isSignedIn) return; // Prevent loading micro apps into UI when logged out
@@ -199,7 +202,7 @@ export default function HomeScreen() {
     };
 
     initializeApp();
-  }, [isSignedIn]);
+  }, [isSignedIn, reconnectCount]);
 
   // Reconcile what is on disk against the user's app list
   useEffect(() => {

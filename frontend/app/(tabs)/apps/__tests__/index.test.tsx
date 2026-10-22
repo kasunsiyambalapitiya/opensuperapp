@@ -21,6 +21,28 @@ jest.mock("@/services/appStoreService", () => ({
   downloadMicroApp: jest.fn(),
   removeMicroApp: jest.fn(),
 }));
+// Drives connectivity by hand: each useIsOnline subscriber registers here.
+const mockConnectivityListeners = new Set<(online: boolean) => void>();
+jest.mock("@/utils/connectivity", () => ({
+  ...jest.requireActual("@/utils/connectivity"),
+  subscribeToConnectivity: (listener: (online: boolean) => void) => {
+    mockConnectivityListeners.add(listener);
+    return () => mockConnectivityListeners.delete(listener);
+  },
+}));
+const setOnline = async (online: boolean) => {
+  jest.useFakeTimers();
+  await act(async () => {
+    mockConnectivityListeners.forEach((listener) => listener(online));
+  });
+  // A reload re-renders the list, which schedules another delayed cell update.
+  act(() => {
+    jest.runOnlyPendingTimers();
+  });
+  jest.useRealTimers();
+};
+// Earlier tests leave their screens mounted; only this test's should hear a change.
+beforeEach(() => mockConnectivityListeners.clear());
 jest.mock("@/context/slices/userConfigSlice", () => ({
   getUserConfigurations: () => ({ type: "userConfig/mock" }),
 }));
@@ -169,6 +191,21 @@ describe("HomeScreen initial load", () => {
 
   it("loads the apps for a session restored offline, which has no userId in Redux", async () => {
     await renderHomeScreen("degraded", null);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the apps again when the connection comes back after an offline start", async () => {
+    await renderHomeScreen("degraded", null);
+    await setOnline(false);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+
+    await setOnline(true);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not load the apps again while the connection holds", async () => {
+    await renderHomeScreen("authenticated", "some-token");
+    await setOnline(true);
     expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
   });
 

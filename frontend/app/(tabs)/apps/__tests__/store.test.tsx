@@ -26,6 +26,28 @@ jest.mock("@/services/appStoreService", () => ({
   downloadMicroApp: jest.fn(),
   removeMicroApp: jest.fn(),
 }));
+// Drives connectivity by hand: each useIsOnline subscriber registers here.
+const mockConnectivityListeners = new Set<(online: boolean) => void>();
+jest.mock("@/utils/connectivity", () => ({
+  ...jest.requireActual("@/utils/connectivity"),
+  subscribeToConnectivity: (listener: (online: boolean) => void) => {
+    mockConnectivityListeners.add(listener);
+    return () => mockConnectivityListeners.delete(listener);
+  },
+}));
+const setOnline = async (online: boolean) => {
+  jest.useFakeTimers();
+  await act(async () => {
+    mockConnectivityListeners.forEach((listener) => listener(online));
+  });
+  // A reload re-renders the list, which schedules another delayed cell update.
+  act(() => {
+    jest.runOnlyPendingTimers();
+  });
+  jest.useRealTimers();
+};
+// Earlier tests leave their screens mounted; only this test's should hear a change.
+beforeEach(() => mockConnectivityListeners.clear());
 jest.mock("@/components/ListItem", () => () => null);
 jest.mock("@/hooks/useSignInWithAsgardeo", () => ({
   useSignInWithAsgardeo: () => jest.fn(),
@@ -138,6 +160,34 @@ describe("Store loading", () => {
     expect(isSpinning(renderer)).toBe(false);
     const list = renderer.root.findByType(FlatList);
     expect(list.props.data).toEqual([cachedApp]);
+  });
+
+  it("loads again when the connection comes back after an offline start", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("degraded", null));
+    await setOnline(false);
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+
+    await setOnline(true);
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not load again while the connection holds", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("authenticated", "some-token"));
+    await setOnline(true);
+
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load on reconnect once the session has ended", async () => {
+    await renderStore(buildStore("expired", null));
+    await setOnline(false);
+    await setOnline(true);
+
+    expect(mockLoadMicroAppDetails).not.toHaveBeenCalled();
   });
 
   it("loads when signed in", async () => {

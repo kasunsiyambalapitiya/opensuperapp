@@ -25,6 +25,7 @@ import {
   updateDownloadProgress,
 } from "@/context/slices/appSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import {
   downloadMicroApp,
   loadMicroAppDetails,
@@ -52,6 +53,7 @@ const Store = () => {
     (state: RootState) => state.apps.downloadProgress
   );
   const isSignedIn = useSelector(selectIsSignedIn);
+  const reconnectCount = useReconnectCount();
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
   );
@@ -81,7 +83,8 @@ const Store = () => {
     };
   }, []);
 
-  // load micro apps list
+  // load micro apps list, and again on reconnect: a session restored offline stays
+  // signed in throughout, so isSignedIn alone never retries a load that did not get through
   useEffect(() => {
     const initializeApps = async () => {
       // Not on accessToken: a session restored offline has none in Redux, and
@@ -99,7 +102,7 @@ const Store = () => {
     };
 
     initializeApps();
-  }, [dispatch, isSignedIn]);
+  }, [dispatch, isSignedIn, reconnectCount]);
 
   const handleRemoveMicroApp = async (dispatch: AppDispatch, appId: string) => {
     // A background version update can be writing the same files; removing
