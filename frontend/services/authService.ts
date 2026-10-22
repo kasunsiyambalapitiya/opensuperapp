@@ -13,7 +13,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { CLIENT_ID, SUCCESS, TOKEN_URL } from "@/constants/Constants";
+import {
+  API_REQUEST_TIMEOUT_MS,
+  CLIENT_ID,
+  SUCCESS,
+  TOKEN_URL,
+} from "@/constants/Constants";
 import { Event } from "@/constants/enums/Event";
 import {
   updateExchangedIdToken,
@@ -29,6 +34,7 @@ import {
   saveAuthDataToSecureStore,
   SecureAuthData,
 } from "@/utils/authTokenStore";
+import { startedBeforeReconnect } from "@/utils/connectivity";
 import { reachabilityEmitter } from "@/utils/eventEmitter";
 import { clearInterruptedRefresh } from "@/utils/rotationGuard";
 import { isTokenExpired } from "@/utils/tokenExpiry";
@@ -170,6 +176,7 @@ export const tokenExchange = async (
 
     // Function to attempt token exchange, with retry on 401 error
     const attemptTokenExchange = async (token: string) => {
+      const startedAt = Date.now();
       try {
         const response = await axios.post(
           TOKEN_URL,
@@ -183,6 +190,7 @@ export const tokenExchange = async (
           }),
           {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            timeout: API_REQUEST_TIMEOUT_MS,
           }
         );
 
@@ -211,10 +219,13 @@ export const tokenExchange = async (
       } catch (error: any) {
         console.error("Fetch error:", error);
         // No Alert: the micro-app screen, the only caller, says so and offers "Try again".
-        reachabilityEmitter.emit(
-          Event.AuthReachability,
-          Boolean(error.response)
-        );
+        // A failure from before the latest reconnect proves nothing about now.
+        if (error.response || !startedBeforeReconnect(startedAt)) {
+          reachabilityEmitter.emit(
+            Event.AuthReachability,
+            Boolean(error.response)
+          );
+        }
         return null;
       }
     };

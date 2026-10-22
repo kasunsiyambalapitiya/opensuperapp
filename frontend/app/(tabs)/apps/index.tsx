@@ -30,6 +30,7 @@ import { MicroApp } from "@/context/slices/appSlice";
 import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import {
   downloadMicroApp,
@@ -61,7 +62,6 @@ export default function HomeScreen() {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const userId = useSelector((state: RootState) => state.auth.userId);
   const isSignedIn = useSelector(selectIsSignedIn);
   const downloading = useSelector((state: RootState) => state.apps.downloading);
   const removing = useSelector((state: RootState) => state.apps.removing);
@@ -122,7 +122,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const checkForUpdates = async () => {
-        if (isCheckingUpdates.current || !userId || !isForceUpdate) {
+        if (isCheckingUpdates.current || !isSignedIn || !isForceUpdate) {
           return;
         }
 
@@ -141,7 +141,7 @@ export default function HomeScreen() {
             return;
           }
           isCheckingUpdates.current = true;
-          await loadMicroAppDetails(
+          const checked = await loadMicroAppDetails(
             dispatch,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
@@ -150,6 +150,8 @@ export default function HomeScreen() {
               setUpdatingApps((prev) => prev.filter((id) => id !== appId));
             }
           );
+          // Only a fetch that got through counts; a failed one retries on the next focus
+          if (!checked) return;
           // Store the current timestamp after successful check
           await AsyncStorage.setItem(
             APP_UPDATE_CHECK_TIMESTAMP_KEY,
@@ -165,16 +167,23 @@ export default function HomeScreen() {
       return () => {
         isCheckingUpdates.current = false;
       };
-    }, [dispatch, userId, isForceUpdate, updateCheckIntervalMs])
+    }, [dispatch, isSignedIn, isForceUpdate, updateCheckIntervalMs])
   );
 
-  // Load micro apps and user configurations if they haven't been initialized yet
+  // Load micro apps and user configurations if they haven't been initialized yet. Again
+  // on reconnect: a session restored offline stays signed in, so isSignedIn never changes
+  const reconnectCount = useReconnectCount();
+  const handledReconnectCount = useRef(reconnectCount);
   useEffect(() => {
+    // A list on screen after an offline start came from disk, so a reconnect fetches anyway
+    const isReconnect = reconnectCount !== handledReconnectCount.current;
+    handledReconnectCount.current = reconnectCount;
+
     const initializeApp = async () => {
-      if (!userId) return; // Prevent loading micro apps into UI when logged out
+      if (!isSignedIn) return; // Prevent loading micro apps into UI when logged out
 
       try {
-        if (!apps || apps.length === 0) {
+        if (isReconnect || !apps || apps.length === 0) {
           await loadMicroAppDetails(
             dispatch,
             (appId: string) => {
@@ -198,7 +207,7 @@ export default function HomeScreen() {
     };
 
     initializeApp();
-  }, [userId]);
+  }, [isSignedIn, reconnectCount]);
 
   // Reconcile what is on disk against the user's app list
   useEffect(() => {
@@ -351,6 +360,7 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={{
             minHeight: windowHeight - 3 * tabBarHeight,
+            paddingBottom: tabBarHeight,
           }}
           showsVerticalScrollIndicator={false}
           onScrollBeginDrag={Keyboard.dismiss}

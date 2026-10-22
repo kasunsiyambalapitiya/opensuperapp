@@ -46,6 +46,12 @@ jest.mock("@/services/tokenRefresh", () => ({
 
 jest.mock("axios", () => ({ post: jest.fn() }));
 
+const mockStartedBeforeReconnect = jest.fn();
+jest.mock("@/utils/connectivity", () => ({
+  startedBeforeReconnect: (startedAt: number) =>
+    mockStartedBeforeReconnect(startedAt),
+}));
+
 const mockPost = axios.post as jest.Mock;
 const dispatch = jest.fn();
 
@@ -64,6 +70,7 @@ let alertSpy: jest.SpyInstance;
 
 beforeEach(() => {
   mockPost.mockReset();
+  mockStartedBeforeReconnect.mockReset().mockReturnValue(false);
   dispatch.mockClear();
   alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   jest.spyOn(console, "error").mockImplementation(() => {});
@@ -89,6 +96,19 @@ describe("when the exchange fails", () => {
     expect(seen).toEqual([false]);
   });
 
+  it("says nothing about reachability for an exchange sent before the latest reconnect", async () => {
+    mockPost.mockRejectedValue(
+      Object.assign(new Error("Network Error"), { isAxiosError: true })
+    );
+    mockStartedBeforeReconnect.mockReturnValue(true);
+    const { seen, off } = collectReachability();
+
+    await expect(exchange()).resolves.toBeNull();
+    off();
+
+    expect(seen).toEqual([]);
+  });
+
   it("returns null without an Alert when the server refused, which still proves it reachable", async () => {
     mockPost.mockRejectedValue(
       Object.assign(new Error("Request failed with status code 400"), {
@@ -103,6 +123,36 @@ describe("when the exchange fails", () => {
 
     expect(alertSpy).not.toHaveBeenCalled();
     expect(seen).toEqual([true]);
+  });
+});
+
+describe("when the token endpoint does not answer", () => {
+  const API_REQUEST_TIMEOUT_MS = 30000;
+
+  it("gives up on the exchange within a bound", async () => {
+    mockPost.mockResolvedValue({ status: 200, data: { access_token: "x" } });
+
+    await exchange();
+
+    expect(mockPost.mock.calls[0][2]).toMatchObject({
+      timeout: API_REQUEST_TIMEOUT_MS,
+    });
+  });
+
+  it("reports a timeout as unreachable and returns null, without an Alert", async () => {
+    mockPost.mockRejectedValue(
+      Object.assign(
+        new Error(`timeout of ${API_REQUEST_TIMEOUT_MS}ms exceeded`),
+        { isAxiosError: true, code: "ECONNABORTED" }
+      )
+    );
+    const { seen, off } = collectReachability();
+
+    await expect(exchange()).resolves.toBeNull();
+    off();
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(seen).toEqual([false]);
   });
 });
 

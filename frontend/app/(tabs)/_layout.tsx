@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 import { HapticTab } from "@/components/HapticTab";
+import OfflineAwareTabBar from "@/components/OfflineAwareTabBar";
+import SimulateOfflineButton from "@/components/SimulateOfflineButton";
 import TabBarBackground from "@/components/ui/TabBarBackground";
 import { Colors } from "@/constants/Colors";
 import {
@@ -112,11 +114,14 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <OfflineAwareTabBar {...props} />}
       screenOptions={{
         tabBarActiveTintColor: Colors.companyOrange,
         headerShown: true,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
+        // headerRight is taken by some tabs; the left is free on all of them.
+        headerLeft: __DEV__ ? () => <SimulateOfflineButton /> : undefined,
         tabBarStyle: Platform.select({
           ios: {
             position: "absolute",

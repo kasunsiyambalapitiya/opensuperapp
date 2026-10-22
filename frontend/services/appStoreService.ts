@@ -300,12 +300,15 @@ const loadStoredApps = async (): Promise<MicroApp[]> => {
   return storedAppsJson ? JSON.parse(storedAppsJson) : [];
 };
 
-const fetchLatestApps = async (): Promise<MicroApp[]> => {
+// Null when no request went out (no token, or the refresh failed), so the caller can tell
+// that apart from a list that came back empty.
+const fetchLatestApps = async (): Promise<MicroApp[] | null> => {
   const response = await apiRequest({
     url: `${BASE_URL}/micro-apps`,
     method: "GET",
   });
-  return response?.data || [];
+  if (!response) return null;
+  return response.data || [];
 };
 
 const shouldUpdateApp = (storedApp: MicroApp, latestApp: MicroApp): boolean => {
@@ -332,25 +335,27 @@ const mergeAppData = (latestApp: MicroApp, storedApp?: MicroApp): MicroApp => {
   };
 };
 
-// Load app list and if updates available update apps
+// Load app list and if updates available update apps. Resolves true only when the latest
+// list was fetched and applied, so a caller can tell a real update check from a skipped one.
 export const loadMicroAppDetails = async (
   dispatch: AppDispatch,
   onUpdateStart?: (appId: string) => void,
   onUpdateEnd?: (appId: string) => void
-) => {
+): Promise<boolean> => {
   try {
     // Load stored apps from AsyncStorage
     const storedApps = await loadStoredApps();
 
     // Abort if the session ended during the async operation. On the session, not
     // userId: a session restored offline is signed in with Redux auth cleared.
-    if (!selectIsSignedIn(store.getState())) return;
+    if (!selectIsSignedIn(store.getState())) return false;
 
     // Dispatch stored apps initially
     dispatch(setApps(storedApps));
 
     // Fetch latest micro apps list from API
     const latestApps = await fetchLatestApps();
+    if (!latestApps) return false;
 
     if (latestApps.length > 0) {
       // Update apps list with status and webViewUri
@@ -375,15 +380,17 @@ export const loadMicroAppDetails = async (
       });
 
       // Abort if the session ended during the API fetch
-      if (!selectIsSignedIn(store.getState())) return;
+      if (!selectIsSignedIn(store.getState())) return false;
 
       // Update Redux and AsyncStorage
       dispatch(setApps(await buildAppsWithTokens(apps)));
       await persistAppsWithoutTokens(apps);
     }
+    return true;
   } catch (error) {
     // The list already on screen came from disk and is still the user's. Clearing it is
     // for the end of a session (endSession), not for a request that did not get through.
     console.error("Error loading micro apps:", error);
+    return false;
   }
 };

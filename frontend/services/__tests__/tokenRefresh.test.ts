@@ -71,8 +71,11 @@ jest.mock("@/utils/rotationGuard", () => ({
 // The NetInfo mock never reports a state, so the real waitForOnline would wait forever.
 // Online unless a test says otherwise.
 const mockWaitForOnline = jest.fn();
+const mockStartedBeforeReconnect = jest.fn();
 jest.mock("@/utils/connectivity", () => ({
   waitForOnline: (...args: unknown[]) => mockWaitForOnline(...args),
+  startedBeforeReconnect: (...args: unknown[]) =>
+    mockStartedBeforeReconnect(...args),
 }));
 
 const mockJwtDecode = jest.fn();
@@ -175,6 +178,7 @@ beforeEach(() => {
   mockMarkRefreshInterrupted.mockReset().mockResolvedValue(undefined);
   mockClearInterruptedRefresh.mockReset().mockResolvedValue(undefined);
   mockWaitForOnline.mockReset().mockResolvedValue(undefined);
+  mockStartedBeforeReconnect.mockReset().mockReturnValue(false);
   mockJwtDecode.mockReset().mockImplementation(() => ({
     email: "user@example.com",
     userid: "user-1",
@@ -609,6 +613,19 @@ describe("what the user is told while the session is fine", () => {
     expect(seen).toEqual([false]);
     expect(expiries()).toBe(0);
     expect(alertMock).not.toHaveBeenCalled();
+  });
+
+  // The network came back while the last attempt was out; its failure is about the old one.
+  it("says nothing when the last attempt went out before the latest reconnect", async () => {
+    const { seen, off } = collectReachability();
+    mockFetch.mockRejectedValue(new TypeError("Network request failed"));
+    mockStartedBeforeReconnect.mockReturnValue(true);
+
+    await refreshAccessToken();
+    off();
+
+    expect(seen).toEqual([]);
+    expect(expiries()).toBe(0);
   });
 
   it("reports it reachable again as soon as any response arrives", async () => {

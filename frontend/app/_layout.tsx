@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import AppProviders from "@/components/contexts/AppProviders";
-import OfflineBanner from "@/components/OfflineBanner";
+import OfflineToast from "@/components/OfflineToast";
 import SessionExpiredPrompt from "@/components/SessionExpiredPrompt";
 import CloseButton from "@/components/headers/CloseButton";
 import SplashModal from "@/components/SplashModal";
@@ -43,14 +43,32 @@ import {
 } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { Stack, useSegments } from "expo-router";
 import { lockAsync, OrientationLock } from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Provider, useDispatch } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
+
+// Screens that show the offline toast themselves. Tab screens float it above their tab
+// bar; a micro-app keeps it inside its own screen, so the toast moves with the screen
+// rather than staying on top of everything above the stack.
+const ROUTES_WITH_OWN_OFFLINE_TOAST = ["(tabs)", "micro-app"];
+
+// Every other route has no bar, so the toast sits on the screen's bottom edge.
+function StackOfflineToast() {
+  const segments = useSegments();
+  const insets = useSafeAreaInsets();
+
+  if (ROUTES_WITH_OWN_OFFLINE_TOAST.includes(segments[0])) {
+    return null;
+  }
+
+  return <OfflineToast bottom={0} bottomInset={insets.bottom} />;
+}
 
 // Component to handle app initialization
 function AppInitializer({ onReady }: { onReady: () => void }) {
@@ -198,7 +216,7 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="+not-found" />
               </Stack>
-              <OfflineBanner />
+              <StackOfflineToast />
               <SessionExpiredPrompt />
             </AppProviders>
           </PersistGate>

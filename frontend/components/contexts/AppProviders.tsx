@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { NotificationsProvider } from "@/context/NotificationsContext";
+import { OfflineStatusProvider } from "@/context/OfflineStatusContext";
 import { QrScannerProvider } from "@/context/QrScannerContext";
 import React from "react";
 
@@ -24,7 +25,9 @@ type AppProvidersProps = {
 const AppProviders = ({ children }: AppProvidersProps) => {
   return (
     <NotificationsProvider>
-      <QrScannerProvider>{children}</QrScannerProvider>
+      <QrScannerProvider>
+        <OfflineStatusProvider>{children}</OfflineStatusProvider>
+      </QrScannerProvider>
     </NotificationsProvider>
   );
 };

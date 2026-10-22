@@ -83,7 +83,7 @@ describe("loadMicroAppDetails", () => {
     (apiRequest as jest.Mock).mockRejectedValue(new Error("Network Error"));
     const dispatch = jest.fn();
 
-    await loadMicroAppDetails(dispatch);
+    expect(await loadMicroAppDetails(dispatch)).toBe(false);
 
     expect(setAppsPayloads(dispatch)).toEqual([STORED_APPS]);
   });
@@ -92,7 +92,8 @@ describe("loadMicroAppDetails", () => {
     (apiRequest as jest.Mock).mockResolvedValue(undefined);
     const dispatch = jest.fn();
 
-    await loadMicroAppDetails(dispatch);
+    // No request went out, so this was not an update check.
+    expect(await loadMicroAppDetails(dispatch)).toBe(false);
 
     expect(setAppsPayloads(dispatch)).toEqual([STORED_APPS]);
   });
@@ -104,17 +105,24 @@ describe("loadMicroAppDetails", () => {
     (apiRequest as jest.Mock).mockResolvedValue({ data: latest });
     const dispatch = jest.fn();
 
-    await loadMicroAppDetails(dispatch);
+    expect(await loadMicroAppDetails(dispatch)).toBe(true);
 
     expect(apiRequest).toHaveBeenCalled();
     expect(setAppsPayloads(dispatch)).toHaveLength(2);
+  });
+
+  it("reports success for a list that came back empty", async () => {
+    (apiRequest as jest.Mock).mockResolvedValue({ data: [] });
+    const dispatch = jest.fn();
+
+    expect(await loadMicroAppDetails(dispatch)).toBe(true);
   });
 
   it("puts nothing on screen once the session has ended", async () => {
     mockAuth = { userId: "user-1", sessionStatus: "signedOut" };
     const dispatch = jest.fn();
 
-    await loadMicroAppDetails(dispatch);
+    expect(await loadMicroAppDetails(dispatch)).toBe(false);
 
     expect(apiRequest).not.toHaveBeenCalled();
     expect(setAppsPayloads(dispatch)).toEqual([]);

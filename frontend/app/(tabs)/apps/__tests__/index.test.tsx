@@ -21,6 +21,28 @@ jest.mock("@/services/appStoreService", () => ({
   downloadMicroApp: jest.fn(),
   removeMicroApp: jest.fn(),
 }));
+// Drives connectivity by hand: each useIsOnline subscriber registers here.
+const mockConnectivityListeners = new Set<(online: boolean) => void>();
+jest.mock("@/utils/connectivity", () => ({
+  ...jest.requireActual("@/utils/connectivity"),
+  subscribeToConnectivity: (listener: (online: boolean) => void) => {
+    mockConnectivityListeners.add(listener);
+    return () => mockConnectivityListeners.delete(listener);
+  },
+}));
+const setOnline = async (online: boolean) => {
+  jest.useFakeTimers();
+  await act(async () => {
+    mockConnectivityListeners.forEach((listener) => listener(online));
+  });
+  // A reload re-renders the list, which schedules another delayed cell update.
+  act(() => {
+    jest.runOnlyPendingTimers();
+  });
+  jest.useRealTimers();
+};
+// Earlier tests leave their screens mounted; only this test's should hear a change.
+beforeEach(() => mockConnectivityListeners.clear());
 jest.mock("@/context/slices/userConfigSlice", () => ({
   getUserConfigurations: () => ({ type: "userConfig/mock" }),
 }));
@@ -47,6 +69,9 @@ jest.mock("@expo/vector-icons", () => ({
 jest.mock("react-redux", () => require("react-redux/alternate-renderers"));
 
 import SignInMessage from "@/components/SignInMessage";
+import { APP_UPDATE_CHECK_TIMESTAMP_KEY } from "@/constants/Constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { SessionStatus } from "@/types/auth.types";
 import React from "react";
 import { FlatList } from "react-native";
@@ -79,18 +104,24 @@ const baseState = {
 
 const buildStore = (
   sessionStatus: SessionStatus,
-  accessToken: string | null
+  accessToken: string | null,
+  configs: { configKey: string; value: unknown }[] = [],
+  apps: unknown[] = []
 ) =>
   createStore(() => ({
     ...baseState,
+    apps: { ...baseState.apps, apps },
     auth: { ...baseState.auth, sessionStatus, accessToken },
+    appConfig: { ...baseState.appConfig, configs },
   }));
 
 const renderHomeScreen = async (
   sessionStatus: SessionStatus,
-  accessToken: string | null = null
+  accessToken: string | null = null,
+  configs: { configKey: string; value: unknown }[] = [],
+  apps: unknown[] = []
 ) => {
-  const store = buildStore(sessionStatus, accessToken);
+  const store = buildStore(sessionStatus, accessToken, configs, apps);
   let renderer: ReactTestRenderer;
 
   jest.useFakeTimers();
@@ -151,5 +182,89 @@ describe("HomeScreen auth gate", () => {
 
   it("gates on the session, not on a token left behind in Redux", async () => {
     expectSignInGate(await renderHomeScreen("expired", "stale-token"));
+  });
+});
+
+describe("HomeScreen initial load", () => {
+  const { loadMicroAppDetails } = jest.requireMock(
+    "@/services/appStoreService"
+  ) as { loadMicroAppDetails: jest.Mock };
+
+  beforeEach(() => loadMicroAppDetails.mockClear());
+
+  it("loads the apps for a session restored offline, which has no userId in Redux", async () => {
+    await renderHomeScreen("degraded", null);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the apps again when the connection comes back after an offline start", async () => {
+    await renderHomeScreen("degraded", null);
+    await setOnline(false);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+
+    await setOnline(true);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches on reconnect even when an offline start left stored apps on screen", async () => {
+    const storedApp = { appId: "stored-app", name: "Stored App", versions: [] };
+    await renderHomeScreen("degraded", null, [], [storedApp]);
+    await setOnline(false);
+    expect(loadMicroAppDetails).not.toHaveBeenCalled();
+
+    await setOnline(true);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load the apps again while the connection holds", async () => {
+    await renderHomeScreen("authenticated", "some-token");
+    await setOnline(true);
+    expect(loadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load the apps once the session has ended", async () => {
+    await renderHomeScreen("expired", null);
+    expect(loadMicroAppDetails).not.toHaveBeenCalled();
+  });
+});
+
+describe("HomeScreen update check on focus", () => {
+  const { loadMicroAppDetails } = jest.requireMock(
+    "@/services/appStoreService"
+  ) as { loadMicroAppDetails: jest.Mock };
+  const updateConfigs = [
+    { configKey: "isForceUpdate", value: true },
+    { configKey: "microappsUpdateCheckInterval", value: 3600 },
+  ];
+
+  beforeEach(async () => {
+    loadMicroAppDetails.mockReset();
+    await AsyncStorage.clear();
+    // Run the focus callback once on mount, as a focused screen would.
+    (useFocusEffect as jest.Mock).mockImplementation((callback) =>
+      React.useEffect(callback, [callback])
+    );
+  });
+
+  afterEach(() => {
+    (useFocusEffect as jest.Mock).mockReset();
+  });
+
+  it("records the check when the app list was fetched", async () => {
+    loadMicroAppDetails.mockResolvedValue(true);
+    await renderHomeScreen("authenticated", "some-token", updateConfigs);
+
+    expect(
+      await AsyncStorage.getItem(APP_UPDATE_CHECK_TIMESTAMP_KEY)
+    ).not.toBeNull();
+  });
+
+  it("does not record the check when the fetch did not get through", async () => {
+    // A degraded session can be signed in with no usable network or token.
+    loadMicroAppDetails.mockResolvedValue(false);
+    await renderHomeScreen("degraded", null, updateConfigs);
+
+    expect(loadMicroAppDetails).toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(APP_UPDATE_CHECK_TIMESTAMP_KEY)).toBeNull();
   });
 });

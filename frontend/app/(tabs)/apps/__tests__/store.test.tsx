@@ -14,13 +14,40 @@
 // specific language governing permissions and limitations
 // under the License.
 jest.mock("@react-native-async-storage/async-storage", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   require("@react-native-async-storage/async-storage/jest/async-storage-mock")
 );
+jest.mock("@react-navigation/bottom-tabs", () => ({
+  ...jest.requireActual("@react-navigation/bottom-tabs"),
+  useBottomTabBarHeight: () => 0,
+}));
 jest.mock("@/services/appStoreService", () => ({
   loadMicroAppDetails: jest.fn(),
   downloadMicroApp: jest.fn(),
   removeMicroApp: jest.fn(),
 }));
+// Drives connectivity by hand: each useIsOnline subscriber registers here.
+const mockConnectivityListeners = new Set<(online: boolean) => void>();
+jest.mock("@/utils/connectivity", () => ({
+  ...jest.requireActual("@/utils/connectivity"),
+  subscribeToConnectivity: (listener: (online: boolean) => void) => {
+    mockConnectivityListeners.add(listener);
+    return () => mockConnectivityListeners.delete(listener);
+  },
+}));
+const setOnline = async (online: boolean) => {
+  jest.useFakeTimers();
+  await act(async () => {
+    mockConnectivityListeners.forEach((listener) => listener(online));
+  });
+  // A reload re-renders the list, which schedules another delayed cell update.
+  act(() => {
+    jest.runOnlyPendingTimers();
+  });
+  jest.useRealTimers();
+};
+// Earlier tests leave their screens mounted; only this test's should hear a change.
+beforeEach(() => mockConnectivityListeners.clear());
 jest.mock("@/components/ListItem", () => () => null);
 jest.mock("@/hooks/useSignInWithAsgardeo", () => ({
   useSignInWithAsgardeo: () => jest.fn(),
@@ -30,7 +57,10 @@ jest.mock("@expo/vector-icons", () => ({
 }));
 // See index.test.tsx: the "react-native" export condition of react-redux is an
 // ESM build this project's Jest transform can't parse.
-jest.mock("react-redux", () => require("react-redux/alternate-renderers"));
+jest.mock("react-redux", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("react-redux/alternate-renderers")
+);
 
 import { loadMicroAppDetails } from "@/services/appStoreService";
 import { SessionStatus } from "@/types/auth.types";
@@ -132,7 +162,44 @@ describe("Store loading", () => {
     expect(list.props.data).toEqual([cachedApp]);
   });
 
-  it("does not load apps when signed out", async () => {
+  it("loads again when the connection comes back after an offline start", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("degraded", null));
+    await setOnline(false);
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+
+    await setOnline(true);
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not load again while the connection holds", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("authenticated", "some-token"));
+    await setOnline(true);
+
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load on reconnect once the session has ended", async () => {
+    await renderStore(buildStore("expired", null));
+    await setOnline(false);
+    await setOnline(true);
+
+    expect(mockLoadMicroAppDetails).not.toHaveBeenCalled();
+  });
+
+  it("loads when signed in", async () => {
+    mockLoadMicroAppDetails.mockResolvedValue(undefined);
+
+    await renderStore(buildStore("authenticated", "some-token"));
+
+    expect(mockLoadMicroAppDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load for an ended session, whatever token is left in Redux", async () => {
+    await renderStore(buildStore("expired", "stale-token"));
     await renderStore(buildStore("signedOut", null));
 
     expect(mockLoadMicroAppDetails).not.toHaveBeenCalled();

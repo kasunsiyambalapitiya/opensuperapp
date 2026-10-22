@@ -25,11 +25,13 @@ import {
   updateDownloadProgress,
 } from "@/context/slices/appSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import {
   downloadMicroApp,
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -51,6 +53,7 @@ const Store = () => {
     (state: RootState) => state.apps.downloadProgress
   );
   const isSignedIn = useSelector(selectIsSignedIn);
+  const reconnectCount = useReconnectCount();
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
   );
@@ -70,7 +73,8 @@ const Store = () => {
   const activeDownloadsRef = useRef(new Set<string>());
 
   const colorScheme = useColorScheme();
-  const styles = createStyles(colorScheme ?? "light");
+  const tabBarHeight = useBottomTabBarHeight();
+  const styles = createStyles(colorScheme ?? "light", tabBarHeight);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -79,7 +83,8 @@ const Store = () => {
     };
   }, []);
 
-  // load micro apps list
+  // load micro apps list, and again on reconnect: a session restored offline stays
+  // signed in throughout, so isSignedIn alone never retries a load that did not get through
   useEffect(() => {
     const initializeApps = async () => {
       // Not on accessToken: a session restored offline has none in Redux, and
@@ -97,7 +102,7 @@ const Store = () => {
     };
 
     initializeApps();
-  }, [dispatch, isSignedIn]);
+  }, [dispatch, isSignedIn, reconnectCount]);
 
   const handleRemoveMicroApp = async (dispatch: AppDispatch, appId: string) => {
     // A background version update can be writing the same files; removing
@@ -286,7 +291,7 @@ const Store = () => {
   );
 };
 
-const createStyles = (colorScheme: "light" | "dark") =>
+const createStyles = (colorScheme: "light" | "dark", tabBarHeight: number) =>
   StyleSheet.create({
     searchContainer: {
       flexDirection: "row",
@@ -323,7 +328,7 @@ const createStyles = (colorScheme: "light" | "dark") =>
       fontSize: 16,
     },
     listContent: {
-      paddingBottom: 80,
+      paddingBottom: tabBarHeight,
     },
     container: {
       flex: 1,

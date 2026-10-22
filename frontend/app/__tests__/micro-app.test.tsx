@@ -118,6 +118,11 @@ jest.mock("expo-secure-store", () => ({
 jest.mock("expo-status-bar", () => ({ StatusBar: () => null }));
 jest.mock("@/components/TextPromptDialog", () => () => null);
 jest.mock("@/components/NotFound", () => () => null);
+jest.mock("@/components/OfflineToast", () => ({
+  __esModule: true,
+  default: () => null,
+  OFFLINE_TOAST_ANIMATION_MS: 200,
+}));
 
 type SetStatus = { type: "set"; sessionStatus: SessionStatus };
 type State = {
