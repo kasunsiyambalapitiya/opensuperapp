@@ -18,13 +18,15 @@ const MANIFEST_FILE_NAME = "microapp.json";
 
 /**
  * Reads the `requiredPermissions` field of a microapp.json, ignoring anything that is
- * not an array of strings. A malformed field must grant nothing rather than everything.
+ * not an array of strings. A malformed field must grant nothing rather than everything,
+ * so one non-string entry discards the whole list.
  * @param value The raw value read from microapp.json.
  * @returns The declared permissions, or an empty list.
  */
 export const parseRequiredPermissions = (value: unknown): string[] =>
-  Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
+  Array.isArray(value) &&
+  value.every((entry): entry is string => typeof entry === "string")
+    ? value
     : [];
 
 /**

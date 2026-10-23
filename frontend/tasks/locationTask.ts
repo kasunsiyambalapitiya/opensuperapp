@@ -18,6 +18,7 @@ import { LocationFix } from "@/types/microApp.types";
 import { appendLocationFixes } from "@/utils/locationBuffer";
 import { LocationObject } from "expo-location";
 import * as TaskManager from "expo-task-manager";
+import { AppState } from "react-native";
 
 /**
  * Background location task.
@@ -37,6 +38,12 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     console.error("Background location task error:", error.message);
     return;
   }
+
+  // The task also fires while the app is in the foreground, where the watch already
+  // delivers each fix live. Buffering those too would replay them on the next resume,
+  // and the timestamp dedup misses any whose reading differs from the watch's by a few
+  // milliseconds. A headless launch is never "active", so it still buffers.
+  if (AppState.currentState === "active") return;
 
   const locations = (data as { locations?: LocationObject[] })?.locations;
   if (!locations?.length) return;

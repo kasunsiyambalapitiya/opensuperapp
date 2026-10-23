@@ -313,9 +313,14 @@ const mergeAppData = (latestApp: MicroApp, storedApp?: MicroApp): MicroApp => {
     displayMode:
       storedApp.displayMode || latestApp.displayMode || DEFAULT_VIEWING_MODE,
     // The installed microapp.json is what the host enforces against, so it wins over
-    // the store listing. The listing is only a pre-install preview.
+    // the store listing. An app that is not installed has no manifest, only the
+    // listing's pre-install preview: removing an app stores an empty list.
     requiredPermissions:
-      storedApp.requiredPermissions ?? latestApp.requiredPermissions ?? [],
+      (storedApp.status === DOWNLOADED
+        ? storedApp.requiredPermissions
+        : undefined) ??
+      latestApp.requiredPermissions ??
+      [],
   };
 };
 

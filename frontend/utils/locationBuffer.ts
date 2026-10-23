@@ -30,6 +30,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * the UI instance.
  */
 
+// Every operation is a read-modify-write over AsyncStorage, so two in flight at once can
+// lose an append: a drain that read before the append landed would write over it. Run
+// them one at a time. The queue only orders operations within one JS runtime, which is
+// enough: only the screen that started the background task drains, and while its
+// runtime is alive the task's fixes are delivered to that same runtime (iOS has one;
+// Android prefers it over a headless one).
+let bufferQueue: Promise<unknown> = Promise.resolve();
+
+const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = bufferQueue.then(operation);
+  bufferQueue = result.catch(() => {});
+  return result;
+};
+
 /** Reads the buffer, tolerating a corrupt or absent value. */
 const readBuffer = async (): Promise<LocationFix[]> => {
   try {
@@ -47,50 +61,46 @@ const readBuffer = async (): Promise<LocationFix[]> => {
  * Appends fixes to the buffer, dropping the oldest once the cap is reached.
  * @param fixes Fixes to append, oldest first.
  */
-export const appendLocationFixes = async (fixes: LocationFix[]) => {
-  if (fixes.length === 0) return;
+export const appendLocationFixes = (fixes: LocationFix[]) =>
+  serialize(async () => {
+    if (fixes.length === 0) return;
 
-  try {
-    const buffered = [...(await readBuffer()), ...fixes];
-    // Drop from the head: on a long drive the newest fixes matter most, and the
-    // consumer can still reconstruct the recent track.
-    const bounded = buffered.slice(-LOCATION_BUFFER_MAX_FIXES);
-    await AsyncStorage.setItem(LOCATION_BUFFER_KEY, JSON.stringify(bounded));
-  } catch (error) {
-    console.error("Failed to append to the location buffer:", error);
-  }
-};
+    try {
+      const buffered = [...(await readBuffer()), ...fixes];
+      // Drop from the head: on a long drive the newest fixes matter most, and the
+      // consumer can still reconstruct the recent track.
+      const bounded = buffered.slice(-LOCATION_BUFFER_MAX_FIXES);
+      await AsyncStorage.setItem(LOCATION_BUFFER_KEY, JSON.stringify(bounded));
+    } catch (error) {
+      console.error("Failed to append to the location buffer:", error);
+    }
+  });
 
 /**
- * Removes and returns every buffered fix, oldest first.
- *
- * Only the fixes actually returned are removed; anything the background task appends
- * while the drain is in flight survives for the next drain.
+ * Removes and returns every buffered fix, oldest first. An append queued while the
+ * drain runs waits for it, so the drain cannot remove a fix it did not return.
  * @returns The drained fixes, oldest first.
  */
-export const drainLocationBuffer = async (): Promise<LocationFix[]> => {
-  try {
-    const drained = await readBuffer();
-    if (drained.length === 0) return [];
+export const drainLocationBuffer = (): Promise<LocationFix[]> =>
+  serialize(async () => {
+    try {
+      const drained = await readBuffer();
+      if (drained.length === 0) return [];
 
-    const drainedKeys = new Set(drained.map((fix) => fix.ts));
-    const remaining = (await readBuffer()).filter(
-      (fix) => !drainedKeys.has(fix.ts)
-    );
-    await AsyncStorage.setItem(LOCATION_BUFFER_KEY, JSON.stringify(remaining));
-
-    return drained;
-  } catch (error) {
-    console.error("Failed to drain the location buffer:", error);
-    return [];
-  }
-};
+      await AsyncStorage.removeItem(LOCATION_BUFFER_KEY);
+      return drained;
+    } catch (error) {
+      console.error("Failed to drain the location buffer:", error);
+      return [];
+    }
+  });
 
 /** Discards the buffer. Called when a stream stops so a later stream cannot replay a stale track. */
-export const clearLocationBuffer = async () => {
-  try {
-    await AsyncStorage.removeItem(LOCATION_BUFFER_KEY);
-  } catch (error) {
-    console.error("Failed to clear the location buffer:", error);
-  }
-};
+export const clearLocationBuffer = () =>
+  serialize(async () => {
+    try {
+      await AsyncStorage.removeItem(LOCATION_BUFFER_KEY);
+    } catch (error) {
+      console.error("Failed to clear the location buffer:", error);
+    }
+  });

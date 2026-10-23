@@ -20,11 +20,16 @@ import {
 } from "@/utils/microAppManifest";
 
 describe("parseRequiredPermissions", () => {
-  it("keeps the string entries of an array", () => {
-    expect(parseRequiredPermissions(["location", 7, null, "camera"])).toEqual([
+  it("keeps an array of strings", () => {
+    expect(parseRequiredPermissions(["location", "camera"])).toEqual([
       "location",
       "camera",
     ]);
+  });
+
+  it("grants nothing for an array with a non-string entry", () => {
+    expect(parseRequiredPermissions(["location", 42])).toEqual([]);
+    expect(parseRequiredPermissions(["location", null, "camera"])).toEqual([]);
   });
 
   it("grants nothing for a value that is not an array", () => {
