@@ -245,6 +245,19 @@ describe("refreshAccessToken", () => {
     expect(expiries()).toBe(0);
   });
 
+  it("keeps the stored user id and email when the new id token leaves them out", async () => {
+    mockJwtDecode.mockImplementation(() => ({ exp: EXP_SECONDS }));
+    mockFetch.mockResolvedValue(response(200, ISSUED_TOKENS));
+
+    const result = await refreshAccessToken();
+
+    expect(result?.userId).toBe("user-1");
+    expect(result?.email).toBe("user@example.com");
+    expect(mockSaveAuthDataToSecureStore).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1", email: "user@example.com" })
+    );
+  });
+
   it("logs out once, without retrying, on a 400 invalid_grant", async () => {
     mockFetch.mockResolvedValue(response(400, { error: "invalid_grant" }));
 

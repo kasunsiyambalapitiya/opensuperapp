@@ -279,6 +279,9 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
         return await handleRefreshFailure(err, lastAttemptAt);
       }
 
+      // An id token issued on refresh can leave out `userid` and `email`. They do not
+      // change within a session, so the stored ones stand in rather than being wiped.
+      const claims = readIssuedClaims(data);
       const updatedAuthData: AuthData = {
         accessToken: data.access_token,
         // Kept deliberately: the fallback only fires when the response arrived without a
@@ -287,7 +290,9 @@ export const refreshAccessToken = async (): Promise<AuthData | null> => {
         // matters is the response that never arrived, which `rotationGuard` tracks.
         refreshToken: data.refresh_token || storedData.refreshToken,
         idToken: data.id_token,
-        ...readIssuedClaims(data),
+        ...claims,
+        email: claims.email ?? storedData.email,
+        userId: claims.userId ?? storedData.userId,
       };
 
       // The session may have ended, or a new one begun, while the request was out.
