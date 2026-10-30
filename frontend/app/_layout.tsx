@@ -14,36 +14,32 @@
 // specific language governing permissions and limitations
 // under the License.
 import AppProviders from "@/components/contexts/AppProviders";
+import OfflineToast from "@/components/OfflineToast";
+import SessionExpiredPrompt from "@/components/SessionExpiredPrompt";
 import CloseButton from "@/components/headers/CloseButton";
 import SplashModal from "@/components/SplashModal";
-import { APPS, isAndroid, NOTIFICATIONS_QUERY_KEY, USER_INFO } from "@/constants/Constants";
-import { setApps } from "@/context/slices/appSlice";
-import { restoreAuth } from "@/context/slices/authSlice";
-import { getUserConfigurations } from "@/context/slices/userConfigSlice";
-import { setUserInfo } from "@/context/slices/userInfoSlice";
-import { getVersions } from "@/context/slices/versionSlice";
+import { isAndroid, NOTIFICATIONS_QUERY_KEY } from "@/constants/Constants";
 import { AppDispatch, persistor, store } from "@/context/store";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
+import { useOfflineQueueReplay } from "@/hooks/useOfflineQueueReplay";
+import { useProactiveTokenRefresh } from "@/hooks/useProactiveTokenRefresh";
 import { usePushNotificationHandler } from "@/hooks/usePushNotificationHandler";
-import { runMigrations } from "@/migrations/migrator";
+import { useSessionListener } from "@/hooks/useSessionListener";
 import {
   onRemoteConfigChange,
-  setRemoteConfigDefaults,
+  initializeRemoteConfig,
 } from "@/services/remoteConfig";
 // Imported for its side effect: defines the background location task. The OS can
 // relaunch the app headlessly to deliver a fix, so the task must be defined on every
 // JS start, not when the micro app screen happens to be mounted.
 import "@/tasks/locationTask";
-import { buildAppsWithTokens } from "@/utils/exchangedTokenRehydrator";
-import { handleFreshInstall } from "@/utils/freshInstall";
-import { performLogout } from "@/utils/performLogout";
+import { initializeApp } from "@/utils/initializeApp";
 import {
   initializeNotifications,
   setupBackgroundNotificationListeners,
   setupMessagingListener,
 } from "@/utils/push-notification";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DarkTheme,
   DefaultTheme,
@@ -51,29 +47,50 @@ import {
 } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { Stack, useSegments } from "expo-router";
 import { lockAsync, OrientationLock } from "expo-screen-orientation";
-import { getItemAsync } from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Provider, useDispatch } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
+
+// Screens that show the offline toast themselves. Tab screens float it above their tab
+// bar; a micro-app keeps it inside its own screen, so the toast moves with the screen
+// rather than staying on top of everything above the stack.
+const ROUTES_WITH_OWN_OFFLINE_TOAST = ["(tabs)", "micro-app"];
+
+// Every other route has no bar, so the toast sits on the screen's bottom edge.
+function StackOfflineToast() {
+  const segments = useSegments();
+  const insets = useSafeAreaInsets();
+
+  if (ROUTES_WITH_OWN_OFFLINE_TOAST.includes(segments[0])) {
+    return null;
+  }
+
+  return <OfflineToast bottom={0} bottomInset={insets.bottom} />;
+}
 
 // Component to handle app initialization
 function AppInitializer({ onReady }: { onReady: () => void }) {
   const dispatch = useDispatch<AppDispatch>(); // Ensure correct typing for async actions
-  const handleLogout = useCallback(async () => {
-    await dispatch(performLogout()).unwrap(); // Ensure the logout action is dispatched properly
-  }, [dispatch]);
+
+  // Before the initialization effect below, so the refreshes it starts are heard.
+  useSessionListener();
 
   /**
    * Handles push notification token lifecycle.
    */
-  usePushNotificationHandler({ onLogout: handleLogout });
+  usePushNotificationHandler();
 
   useNotificationNavigation();
+
+  useOfflineQueueReplay();
+
+  useProactiveTokenRefresh();
 
   const queryClient = useQueryClient();
 
@@ -91,30 +108,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
   useEffect(() => {
     const initialize = async () => {
-      try {
-        await handleFreshInstall();
-        await runMigrations(); // Runs any migrations.
-        const [savedApps, savedUserInfo] = await Promise.all([
-          AsyncStorage.getItem(APPS),
-          getItemAsync(USER_INFO),
-        ]);
-
-        if (savedApps) {
-          dispatch(setApps(await buildAppsWithTokens(JSON.parse(savedApps))));
-        }
-
-        if (savedUserInfo) {
-          dispatch(setUserInfo(JSON.parse(savedUserInfo)));
-        }
-
-        dispatch(getVersions(handleLogout));
-        dispatch(getUserConfigurations(handleLogout));
-        await dispatch(restoreAuth()).unwrap();
-      } catch (error) {
-        console.error("Initialization error:", error);
-      } finally {
-        onReady();
-      }
+      await initializeApp(dispatch);
+      onReady();
     };
 
     initialize();
@@ -163,7 +158,7 @@ export default function RootLayout() {
 
   // Initialize Firebase Remote Config
   useEffect(() => {
-    setRemoteConfigDefaults();
+    initializeRemoteConfig();
 
     const unsubscribe = onRemoteConfigChange((error, _) => {
       if (error) {
@@ -225,6 +220,8 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="+not-found" />
               </Stack>
+              <StackOfflineToast />
+              <SessionExpiredPrompt />
             </AppProviders>
           </PersistGate>
         </Provider>

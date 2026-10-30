@@ -14,16 +14,12 @@
 // specific language governing permissions and limitations
 // under the License.
 import {
-  ACCESS_TOKEN,
-  AUTH_EMAIL_KEY,
-  EXPIRES_AT_KEY,
   GOOGLE_ACCESS_TOKEN_KEY,
   GOOGLE_REFRESH_TOKEN_KEY,
   GOOGLE_USER_INFO_KEY,
-  ID_TOKEN,
-  REFRESH_TOKEN,
   USER_INFO,
 } from "@/constants/Constants";
+import { clearAuthDataFromSecureStore } from "@/utils/authTokenStore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { deleteItemAsync } from "expo-secure-store";
 
@@ -41,11 +37,10 @@ export async function handleFreshInstall() {
   try {
     // Wipe all auth secrets that might have survived uninstall in SecureStore
     await Promise.all([
-      deleteItemAsync(ACCESS_TOKEN),
-      deleteItemAsync(REFRESH_TOKEN),
-      deleteItemAsync(ID_TOKEN),
-      deleteItemAsync(EXPIRES_AT_KEY),
-      deleteItemAsync(AUTH_EMAIL_KEY),
+      // The auth keys are owned by authTokenStore, which knows both the bundle it writes
+      // today and the older per-field keys an upgrade may have left behind. Listing them
+      // here as well is how this function fell out of date the last time they changed.
+      clearAuthDataFromSecureStore(),
       deleteItemAsync(USER_INFO),
       deleteItemAsync(GOOGLE_ACCESS_TOKEN_KEY),
       deleteItemAsync(GOOGLE_REFRESH_TOKEN_KEY),

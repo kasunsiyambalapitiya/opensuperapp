@@ -18,6 +18,8 @@ import React from "react";
 import {
   Modal,
   StyleSheet,
+  Text,
+  TouchableOpacity,
   TouchableWithoutFeedback,
   useColorScheme,
   View,
@@ -33,6 +35,13 @@ interface SignInModalProps {
 
   /** Callback to close the modal */
   onClose: () => void;
+
+  /** Heading and body passed to SignInMessage; its defaults apply when left out. */
+  title?: string;
+  message?: string;
+
+  /** Label of a secondary button that closes the modal; none is shown when left out. */
+  dismissLabel?: string;
 }
 
 /**
@@ -44,7 +53,7 @@ interface SignInModalProps {
  * @param {() => void} onClose - Callback triggered when the modal is dismissed.
  */
 const SignInModal: React.FC<SignInModalProps> = React.memo(
-  ({ visible, onClose }) => {
+  ({ visible, onClose, title, message, dismissLabel }) => {
     const colorScheme = useColorScheme();
     const styles = createStyles(colorScheme ?? "light");
 
@@ -61,7 +70,18 @@ const SignInModal: React.FC<SignInModalProps> = React.memo(
           <View style={styles.overlay}>
             {/* Prevent propagation of touches from closing the modal */}
             <View style={styles.modal}>
-              <SignInMessage />
+              <SignInMessage title={title} message={message} />
+              {dismissLabel && (
+                <TouchableOpacity
+                  style={styles.dismissButton}
+                  onPress={onClose}
+                  activeOpacity={0.5}
+                  accessibilityRole="button"
+                  accessibilityLabel={dismissLabel}
+                >
+                  <Text style={styles.dismissText}>{dismissLabel}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -121,6 +141,18 @@ const createStyles = (colorScheme: "light" | "dark") =>
       fontSize: 16,
       lineHeight: 20,
       color: Colors[colorScheme].primaryBackgroundColor,
+      fontWeight: "600",
+    },
+    dismissButton: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 12,
+      width: "80%",
+    },
+    dismissText: {
+      fontSize: 16,
+      lineHeight: 20,
+      color: Colors[colorScheme].primaryTextColor,
       fontWeight: "600",
     },
   });

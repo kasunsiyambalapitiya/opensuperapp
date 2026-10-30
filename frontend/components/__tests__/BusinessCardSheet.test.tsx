@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 import BusinessCardSheet from "@/components/BusinessCardSheet";
+import BusinessCardQrModal from "@/components/businessCard/BusinessCardQrModal";
+import { saveBusinessCardPass } from "@/services/walletPassService";
 import React from "react";
 import { Modal, Text } from "react-native";
 import { act, create } from "react-test-renderer";
@@ -61,8 +63,11 @@ jest.mock("react-redux", () => ({
     }),
 }));
 
-jest.mock("@/hooks/useWalletPassEnabled", () => ({
-  useWalletPassEnabled: () => false,
+// A mutable object lets individual tests flip walletDownloadEnabled without
+// re-mocking the module.
+const walletPassConfig = { cardEnabled: true, walletDownloadEnabled: false };
+jest.mock("@/hooks/useWalletPassConfig", () => ({
+  useWalletPassConfig: () => walletPassConfig,
 }));
 
 jest.mock("expo-brightness", () => ({
@@ -84,13 +89,31 @@ jest.mock("react-native-qrcode-svg", () => ({
   default: () => null,
 }));
 
-jest.mock("@/services/authService", () => ({ logout: jest.fn() }));
 jest.mock("@/services/walletPassService", () => ({
   saveBusinessCardPass: jest.fn().mockResolvedValue(false),
 }));
 jest.mock("@/services/businessCardService", () => ({
   shareVCard: jest.fn().mockResolvedValue(undefined),
   shareCardImage: jest.fn().mockResolvedValue(undefined),
+}));
+
+// The presence check reaches PassKit on iOS and AsyncStorage on Android;
+// neither exists here, and this suite is about the sheet's wiring rather than
+// what either platform answers.
+jest.mock("@/services/wallet/passPresence", () => ({
+  isPassInWallet: jest.fn().mockResolvedValue(false),
+  markPassAdded: jest.fn().mockResolvedValue(undefined),
+  openPassInWallet: jest.fn().mockResolvedValue(true),
+}));
+
+// PassKit's PKAddPassButton, behind a local Expo module with no JS fallback:
+// under Jest the real module finds no native module and reports itself
+// unavailable, at which point `BusinessCardActions.ios` deliberately hands the
+// footer no wallet button at all. This suite is about the sheet's wiring on a
+// device where the control does exist, so say so here.
+jest.mock("@/modules/apple-wallet-button", () => ({
+  AppleWalletButtonView: () => null,
+  isAppleWalletButtonAvailable: true,
 }));
 
 const render = (visible: boolean, onClose = jest.fn()) => {
@@ -108,11 +131,17 @@ const allText = (root: ReturnType<typeof create>): string[] =>
     .flat()
     .filter((value): value is string => typeof value === "string");
 
-// Modal[0] is the sheet itself; the QR overlay is the one nested inside it.
+// By component rather than by index into findAllByType(Modal): the sheet
+// nests an overlay, and an index silently starts pointing at whichever one
+// happens to render first.
 const qrModal = (root: ReturnType<typeof create>) =>
-  root.root.findAllByType(Modal)[1];
+  root.root.findByType(BusinessCardQrModal);
 
 describe("BusinessCardSheet", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it("presents as a sheet rather than a pushed screen", () => {
     const { root } = render(true);
     const sheet = root.root.findAllByType(Modal)[0];
@@ -120,7 +149,9 @@ describe("BusinessCardSheet", () => {
     expect(sheet.props.visible).toBe(true);
     expect(sheet.props.animationType).toBe("slide");
     // pageSheet on iOS, where the presentation style is honoured.
-    expect(["pageSheet", "fullScreen"]).toContain(sheet.props.presentationStyle);
+    expect(["pageSheet", "fullScreen"]).toContain(
+      sheet.props.presentationStyle,
+    );
   });
 
   it("shows the title and phone number the access token carries", () => {
@@ -145,19 +176,63 @@ describe("BusinessCardSheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("still renders the save action while the pass flag is off", () => {
+  // The hook is mocked to false by default, which is the hidden case: no
+  // vendor wallet button, "Save image" promoted to the primary slot.
+  it("leads with Save image while the pass flag is off", () => {
     const { root } = render(true);
+
     expect(
-      root.root.findByProps({ accessibilityLabel: "save_business_card" })
-    ).toBeDefined();
+      root.root.findAllByProps({ accessibilityLabel: "save_business_card" }),
+    ).toHaveLength(0);
+    expect(allText(root)).toContain("Save image");
+    expect(allText(root)).not.toContain("Save as image");
+  });
+
+  it("leads with the wallet badge while the pass flag is on", () => {
+    walletPassConfig.walletDownloadEnabled = true;
+    try {
+      const { root } = render(true);
+
+      expect(
+        root.root.findAllByProps(
+          { accessibilityLabel: "save_business_card" },
+          { deep: false },
+        ),
+      ).toHaveLength(1);
+      expect(allText(root)).not.toContain("Save image");
+      expect(allText(root)).toContain("Save as image");
+    } finally {
+      walletPassConfig.walletDownloadEnabled = false;
+    }
+  });
+
+  it("builds the pass when the wallet button is tapped", async () => {
+    walletPassConfig.walletDownloadEnabled = true;
+    try {
+      const { root } = render(true);
+
+      await act(async () => {
+        await root.root
+          .findAllByProps(
+            { accessibilityLabel: "save_business_card" },
+            { deep: false },
+          )[0]
+          .props.onPress();
+      });
+
+      expect(saveBusinessCardPass).toHaveBeenCalledTimes(1);
+    } finally {
+      walletPassConfig.walletDownloadEnabled = false;
+    }
   });
 
   it("drops the QR overlay when the sheet is hidden, so reopening starts clean", () => {
     const { root, onClose } = render(true);
 
     act(() => {
-      root.root.findByProps({ accessibilityLabel: "pass_barcode" }).props
-        .onPress();
+      root.root
+        .findByProps({ accessibilityLabel: "pass_barcode" })
+        .props.onPress();
     });
     expect(qrModal(root).props.visible).toBe(true);
 
@@ -190,8 +265,8 @@ describe("BusinessCardSheet", () => {
 
     expect(
       log.mock.calls.filter(
-        ([tag, event]) => tag === "[analytics]" && event === "card_viewed"
-      )
+        ([tag, event]) => tag === "[analytics]" && event === "card_viewed",
+      ),
     ).toHaveLength(2);
 
     log.mockRestore();

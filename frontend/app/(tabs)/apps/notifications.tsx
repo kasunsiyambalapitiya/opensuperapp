@@ -17,15 +17,16 @@ import ContentEmptyView from "@/components/ContentEmptyView";
 import { NotificationItem } from "@/components/notifications/NotificationItem";
 import { NotificationsFooter } from "@/components/notifications/NotificationsFooter";
 import { Colors } from "@/constants/Colors";
+import { ScreenPaths } from "@/constants/ScreenPaths";
 import { Styles } from "@/constants/Styles";
+import { useLeaveWhenSessionEnds } from "@/hooks/useLeaveWhenSessionEnds";
 import { useLocalNotifications } from "@/hooks/useLocalNotifications";
 import { Notification, useNotifications } from "@/hooks/useNotifications";
-import { logout } from "@/services/authService";
 import { convertToUtc } from "@/utils/date";
 import { Ionicons } from "@expo/vector-icons";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useIsFocused } from "@react-navigation/native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -40,6 +41,9 @@ export default function Notifications() {
   const colorScheme = useColorScheme() ?? "light";
   const tabbarHeight = useBottomTabBarHeight();
 
+  // Notifications are fetched only with a session; My Apps has the Sign In for it.
+  useLeaveWhenSessionEnds(() => router.navigate(ScreenPaths.MY_APPS));
+
   const {
     notifications: serverNotifications,
     isLoading,
@@ -50,7 +54,7 @@ export default function Notifications() {
     isFetchingNextPage,
     lastOpenedAt,
     markAsRead,
-  } = useNotifications(logout);
+  } = useNotifications();
 
   const { localNotifications } = useLocalNotifications();
 

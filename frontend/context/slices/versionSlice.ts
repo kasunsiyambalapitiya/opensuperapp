@@ -41,15 +41,12 @@ const initialState: VersionState = {
 // Async function to fetch versions
 export const getVersions = createAsyncThunk(
   "version/fetch",
-  async (onLogout: () => Promise<void>, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await apiRequest(
-        {
-          url: `${BASE_URL}/versions?platform=${Platform.OS}`,
-          method: "GET",
-        },
-        onLogout
-      );
+      const response = await apiRequest({
+        url: `${BASE_URL}/versions?platform=${Platform.OS}`,
+        method: "GET",
+      });
 
       if (response?.data) return response.data;
       else return rejectWithValue("Version data not found");

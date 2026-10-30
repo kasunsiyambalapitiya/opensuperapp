@@ -3,6 +3,13 @@ userRegionFilter=""
 mobileAppReviewerEmail=""
 regionRestrictedMicroApps=["", "", ""]
 
+[superapp_mobile_service.authorization]
+# Optional, unlike the rest of this file: left out, the defaults in
+# modules/authorization/access.bal apply. An empty entry is not "no
+# restriction", it denies everyone.
+#businessCardAllowedDomains=["example.com"]
+#businessCardAllowedGroups=["example-employees"]
+
 [superapp_mobile_service.database]
 defaultMicroAppsGroup=""
 

@@ -14,6 +14,9 @@
 // specific language governing permissions and limitations
 // under the License.
 import NotFound from "@/components/NotFound";
+import OfflineToast, {
+  OFFLINE_TOAST_ANIMATION_MS,
+} from "@/components/OfflineToast";
 import TextPromptDialog from "@/components/TextPromptDialog";
 import { Colors } from "@/constants/Colors";
 import {
@@ -34,9 +37,9 @@ import {
 import { Event } from "@/constants/enums/Event";
 import { ScreenPaths } from "@/constants/ScreenPaths";
 import { RootState } from "@/context/store";
+import { useLeaveWhenSessionEnds } from "@/hooks/useLeaveWhenSessionEnds";
 import {
   isTokenExpired,
-  logout,
   tokenExchange,
   TokenExchangeResult,
 } from "@/services/authService";
@@ -94,7 +97,9 @@ import { StatusBar } from "expo-status-bar";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   Keyboard,
   StyleSheet,
@@ -112,6 +117,11 @@ import { useDispatch, useSelector } from "react-redux";
 WebBrowser.maybeCompleteAuthSession();
 
 type NativeLogLevel = "info" | "warn" | "error";
+
+const TOKEN_UNAVAILABLE = "Could not get a token for this app";
+
+// The offline toast is shown on opening, then gets out of the micro app's way.
+const OFFLINE_TOAST_AUTO_HIDE_MS = 4000;
 
 // Starting and stopping a stream are asynchronous and can overlap: a stop, an unmount,
 // or a second start can land while the first is still awaiting a permission dialog or
@@ -185,6 +195,29 @@ const MicroApp = () => {
   const insets = useSafeAreaInsets();
   const shouldShowHeader: boolean = displayMode !== FULL_SCREEN_VIEWING_MODE;
   const { width, height } = useWindowDimensions();
+  const [offlineToastVisible, setOfflineToastVisible] = useState(false);
+  const [offlineToastHeight, setOfflineToastHeight] = useState(0);
+  const tokenErrorLift = useRef(new Animated.Value(0)).current;
+
+  // The sign-in error and the offline toast are both pinned to the bottom; the error moves
+  // up out of the toast's way, and back down once the toast has gone.
+  useEffect(() => {
+    // The toast already covers the safe area the error sits above.
+    const lift = offlineToastVisible
+      ? Math.max(0, offlineToastHeight - insets.bottom)
+      : 0;
+    const animation = Animated.timing(tokenErrorLift, {
+      toValue: -lift,
+      // The toast's own slide, so the two move together.
+      duration: OFFLINE_TOAST_ANIMATION_MS,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [offlineToastVisible, offlineToastHeight, insets.bottom, tokenErrorLift]);
+
+  // Every token it asks for from here on would fail; the sign-in prompt takes over.
+  useLeaveWhenSessionEnds(() => router.back());
 
   // Where the micro app is served from, and the boundary every navigation and
   // bridge message is matched against.
@@ -196,6 +229,10 @@ const MicroApp = () => {
   // Token and ID token states
   const [token, setToken] = useState<string | null>();
   const [idToken, setIdToken] = useState<string | null>();
+  const [tokenUnavailable, setTokenUnavailable] = useState(false);
+  const [isRetryingToken, setIsRetryingToken] = useState(false);
+  // An app with no client id has no token to exchange for, so nothing to retry.
+  const showTokenError = tokenUnavailable && Boolean(clientId);
 
   // Keyboard Listeners
   useEffect(() => {
@@ -244,7 +281,6 @@ const MicroApp = () => {
             exchangedToken,
             exchangedIdToken,
             appId,
-            logout,
             appScopes
           );
           if (result) {
@@ -320,26 +356,15 @@ const MicroApp = () => {
   useEffect(() => {
     const fetchToken = async () => {
       try {
-        const result = await tokenExchange(
-          dispatch,
-          clientId,
-          exchangedToken,
-          exchangedIdToken,
-          appId,
-          logout,
-          appScopes
-        );
+        // Shared with the bridge's token requests, so one made during startup waits on
+        // this exchange instead of racing it to a different answer.
+        const result = await refreshTokenIfExpired();
         if (!result) throw new Error("Token exchange failed");
-        if (result.accessToken) {
-          setToken(result.accessToken);
-          sendTokenToWebView(result.accessToken);
-        }
-        if (result.idToken) {
-          setIdToken(result.idToken);
-          sendIdTokenToWebView(result.idToken);
-        }
+        if (result.accessToken) sendTokenToWebView(result.accessToken);
+        if (result.idToken) sendIdTokenToWebView(result.idToken);
       } catch (error) {
         console.error("Token exchange error:", error);
+        rejectTokenRequest("rejectToken", null);
       }
     };
 
@@ -360,6 +385,7 @@ const MicroApp = () => {
   // Function to send token to WebView
   const sendTokenToWebView = (token: string) => {
     if (!token) return;
+    setTokenUnavailable(false);
     sendResponseToWeb("resolveToken", token);
     // Resolve any pending token requests
     while (pendingTokenRequests.current.length > 0) {
@@ -377,6 +403,26 @@ const MicroApp = () => {
       const resolve = pendingIdTokenRequests.current.shift();
       resolve?.(idToken);
     }
+  };
+
+  // Answers a token request that cannot be filled, so the micro app's promise settles
+  // instead of hanging. When the exchange itself failed - as opposed to coming back
+  // without an ID token - the user is told too: an expired session closes this screen,
+  // so what is left is the connection or the server, and either may come back.
+  const rejectTokenRequest = (
+    method: "rejectToken" | "rejectIdToken",
+    exchange: TokenExchangeResult | null
+  ) => {
+    sendResponseToWeb(method, TOKEN_UNAVAILABLE);
+    if (!exchange) setTokenUnavailable(true);
+  };
+
+  const retryToken = async () => {
+    setIsRetryingToken(true);
+    const result = await refreshTokenIfExpired();
+    setIsRetryingToken(false);
+    if (result?.accessToken) sendTokenToWebView(result.accessToken);
+    if (result?.idToken) sendIdTokenToWebView(result.idToken);
   };
 
   // Function to send QR string to WebView
@@ -1060,6 +1106,8 @@ const MicroApp = () => {
             refreshTokenIfExpired().then((result) => {
               if (result?.accessToken) {
                 sendTokenToWebView(result.accessToken);
+              } else {
+                rejectTokenRequest("rejectToken", result);
               }
             });
           }
@@ -1071,6 +1119,8 @@ const MicroApp = () => {
             refreshTokenIfExpired().then((result) => {
               if (result?.idToken) {
                 sendIdTokenToWebView(result.idToken);
+              } else {
+                rejectTokenRequest("rejectIdToken", result);
               }
             });
           }
@@ -1329,6 +1379,47 @@ const MicroApp = () => {
         <View style={styles.webViewContainer}>
           {renderWebView(isDeveloper ? webUri : webViewUri)}
         </View>
+        {showTokenError && (
+          <Animated.View
+            style={[
+              styles.tokenError,
+              {
+                bottom: insets.bottom + 16,
+                transform: [{ translateY: tokenErrorLift }],
+              },
+            ]}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            <Text style={styles.tokenErrorText}>
+              Couldn&apos;t sign in to {appName}. Try again in a moment.
+            </Text>
+            <TouchableOpacity
+              onPress={retryToken}
+              disabled={isRetryingToken}
+              style={styles.retryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Try again"
+              accessibilityState={{ busy: isRetryingToken }}
+            >
+              {isRetryingToken ? (
+                <ActivityIndicator
+                  size="small"
+                  color={Colors[colorScheme ?? "light"].primaryBackgroundColor}
+                />
+              ) : (
+                <Text style={styles.retryText}>Try again</Text>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        )}
+        <OfflineToast
+          bottom={0}
+          bottomInset={insets.bottom}
+          autoHideMs={OFFLINE_TOAST_AUTO_HIDE_MS}
+          onHeight={setOfflineToastHeight}
+          onVisibleChange={setOfflineToastVisible}
+        />
       </View>
       <TextPromptDialog
         visible={appUrlDialogVisible}
@@ -1381,6 +1472,24 @@ const createStyles = (colorScheme: "light" | "dark", bottomSafeArea: number) =>
     },
     bold: {
       fontWeight: "bold",
+    },
+    tokenError: {
+      position: "absolute",
+      left: 16,
+      right: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: Colors[colorScheme].borderColor,
+      backgroundColor: Colors[colorScheme].secondaryBackgroundColor,
+    },
+    tokenErrorText: {
+      flex: 1,
+      fontSize: 14,
+      color: Colors[colorScheme].text,
     },
     retryButton: {
       paddingVertical: 10,

@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import SearchBar from "@/components/SearchBar";
+import SignInMessage from "@/components/SignInMessage";
 import SyncingModal from "@/components/SyncingModal";
 import Widget from "@/components/Widget";
 import { Colors } from "@/constants/Colors";
@@ -26,15 +27,16 @@ import {
 import { Directory, Paths } from "expo-file-system";
 import { ScreenPaths } from "@/constants/ScreenPaths";
 import { MicroApp } from "@/context/slices/appSlice";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { getUserConfigurations } from "@/context/slices/userConfigSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
 import {
   downloadMicroApp,
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
-import { logout } from "@/services/authService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
@@ -60,7 +62,9 @@ export default function HomeScreen() {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const { userId } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
+  const downloading = useSelector((state: RootState) => state.apps.downloading);
+  const removing = useSelector((state: RootState) => state.apps.removing);
   const isForceUpdate = useSelector(
     (state: RootState) =>
       state.appConfig.configs.find(
@@ -88,6 +92,7 @@ export default function HomeScreen() {
   });
   const [updatingApps, setUpdatingApps] = useState<string[]>([]);
   const isCheckingUpdates = useRef(false);
+  const isSyncingApps = useRef(false);
   useTrackActiveScreen(ScreenPaths.MY_APPS);
   const updateCheckInterval = useSelector(
     (state: RootState) =>
@@ -117,7 +122,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const checkForUpdates = async () => {
-        if (isCheckingUpdates.current || !userId || !isForceUpdate) {
+        if (isCheckingUpdates.current || !isSignedIn || !isForceUpdate) {
           return;
         }
 
@@ -136,9 +141,8 @@ export default function HomeScreen() {
             return;
           }
           isCheckingUpdates.current = true;
-          await loadMicroAppDetails(
+          const checked = await loadMicroAppDetails(
             dispatch,
-            logout,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
             },
@@ -146,6 +150,8 @@ export default function HomeScreen() {
               setUpdatingApps((prev) => prev.filter((id) => id !== appId));
             }
           );
+          // Only a fetch that got through counts; a failed one retries on the next focus
+          if (!checked) return;
           // Store the current timestamp after successful check
           await AsyncStorage.setItem(
             APP_UPDATE_CHECK_TIMESTAMP_KEY,
@@ -161,19 +167,25 @@ export default function HomeScreen() {
       return () => {
         isCheckingUpdates.current = false;
       };
-    }, [dispatch, userId, isForceUpdate, updateCheckIntervalMs])
+    }, [dispatch, isSignedIn, isForceUpdate, updateCheckIntervalMs])
   );
 
-  // Load micro apps and user configurations if they haven't been initialized yet
+  // Load micro apps and user configurations if they haven't been initialized yet. Again
+  // on reconnect: a session restored offline stays signed in, so isSignedIn never changes
+  const reconnectCount = useReconnectCount();
+  const handledReconnectCount = useRef(reconnectCount);
   useEffect(() => {
+    // A list on screen after an offline start came from disk, so a reconnect fetches anyway
+    const isReconnect = reconnectCount !== handledReconnectCount.current;
+    handledReconnectCount.current = reconnectCount;
+
     const initializeApp = async () => {
-      if (!userId) return; // Prevent loading micro apps into UI when logged out
+      if (!isSignedIn) return; // Prevent loading micro apps into UI when logged out
 
       try {
-        if (!apps || apps.length === 0) {
+        if (isReconnect || !apps || apps.length === 0) {
           await loadMicroAppDetails(
             dispatch,
-            logout,
             (appId: string) => {
               setUpdatingApps((prev) => [...prev, appId]);
             },
@@ -183,7 +195,7 @@ export default function HomeScreen() {
           );
         }
         if (!userConfigurations || userConfigurations.length === 0) {
-          dispatch(getUserConfigurations(logout));
+          dispatch(getUserConfigurations());
         }
       } catch (error) {
         console.error("Error during app initialization:", error);
@@ -195,86 +207,88 @@ export default function HomeScreen() {
     };
 
     initializeApp();
-  }, [userId]);
+  }, [isSignedIn, reconnectCount]);
 
-  // Load saved app order from AsyncStorage on mount
+  // Reconcile what is on disk against the user's app list
   useEffect(() => {
-    const syncApps = async () => {
+    const syncApps = async (appsToRemove: string[], appsToInstall: string[]) => {
+      isSyncingApps.current = true;
       setSyncing(true);
-      setProgress({ done: 0, total: 0 });
       setCurrentAction(null);
+      setProgress({ done: 0, total: appsToRemove.length + appsToInstall.length });
 
       try {
-        const userConfigAppIds = userConfigurations.find(
-          (config) => config.configKey === APP_LIST_CONFIG_KEY
-        );
-
-        const allowedApps = (userConfigAppIds?.configValue as string[]) || [];
-
-        // Verify if the files actually exist on disk, not just trust the Redux status
-        const localAppIds: string[] = [];
-        for (const app of apps) {
-          if (app?.status === DOWNLOADED) {
-             const appDir = new Directory(Paths.document, MICRO_APP_STORAGE_DIR, "micro-apps", `${app.appId}-extracted`);
-             if (appDir.exists) {
-                localAppIds.push(app.appId);
-             }
-          }
-        }
-
-        const appsToRemove = localAppIds.filter(
-          (appId) => !allowedApps.includes(appId)
-        );
-        const appsToInstall = allowedApps.filter(
-          (appId) => !localAppIds.includes(appId)
-        );
-
-        const totalSteps = appsToRemove.length + appsToInstall.length;
-        setProgress({ done: 0, total: totalSteps });
-
-        // Remove apps
         for (const appId of appsToRemove) {
           const appData = apps.find((app) => app.appId === appId);
           setCurrentAction(`Removing ${appData?.name || appId}`);
-          await removeMicroApp(dispatch, appId, logout);
+          await removeMicroApp(dispatch, appId);
           setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         }
 
-        let updatedApps = apps.filter(
-          (app) => localAppIds.includes(app.appId) && !appsToRemove.includes(app.appId)
-        );
-
-        // Install apps
         for (const appId of appsToInstall) {
           const appData = apps.find((app) => app.appId === appId);
-          if (appData) {
-            setCurrentAction(`Downloading ${appData.name}`);
-            const success = await downloadMicroApp(
-              dispatch,
-              appId,
-              appData.versions?.[0]?.downloadUrl,
-              logout
-            );
-            
-            if (success) {
-              updatedApps.push({
-                ...appData,
-                status: DOWNLOADED,
-              });
-            }
-            setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-          }
+          if (!appData) continue;
+          setCurrentAction(`Downloading ${appData.name}`);
+          await downloadMicroApp(
+            dispatch,
+            appId,
+            appData.versions?.[0]?.downloadUrl
+          );
+          setProgress((prev) => ({ ...prev, done: prev.done + 1 }));
         }
       } catch (error) {
         console.error("App sync failed:", error);
       } finally {
         setCurrentAction(null);
         setSyncing(false);
+        isSyncingApps.current = false;
       }
     };
 
-    if (userConfigurations && userConfigurations.length > 0 && apps && apps.length > 0) syncApps();
-  }, [dispatch, userConfigurations, apps]);
+    // This effect re-runs on every `apps` change, including the ones its own
+    // installs and removals produce, so it must be inert once disk and config
+    // agree — otherwise it fights whatever the user just did in the Store.
+    if (isSyncingApps.current) return;
+    if (!userConfigurations?.length || !apps?.length) return;
+
+    // An install or removal reaches its final state through several dispatches
+    // and a network round trip. Reconciling against a half-applied one is what
+    // made Store downloads vanish and Store removals reinstall themselves, so
+    // wait for the operation to finish; clearing its flag re-runs this effect.
+    if (downloading.length > 0 || removing.length > 0) return;
+
+    const userConfigAppIds = userConfigurations.find(
+      (config) => config.configKey === APP_LIST_CONFIG_KEY
+    );
+    const allowedApps = (userConfigAppIds?.configValue as string[]) || [];
+
+    // Verify if the files actually exist on disk, not just trust the Redux status
+    const localAppIds: string[] = [];
+    for (const app of apps) {
+      if (app?.status === DOWNLOADED) {
+        const appDir = new Directory(
+          Paths.document,
+          MICRO_APP_STORAGE_DIR,
+          "micro-apps",
+          `${app.appId}-extracted`
+        );
+        if (appDir.exists) {
+          localAppIds.push(app.appId);
+        }
+      }
+    }
+
+    const appsToRemove = localAppIds.filter(
+      (appId) => !allowedApps.includes(appId)
+    );
+    const appsToInstall = allowedApps.filter(
+      (appId) => !localAppIds.includes(appId)
+    );
+
+    if (appsToRemove.length === 0 && appsToInstall.length === 0) return;
+
+    syncApps(appsToRemove, appsToInstall);
+  }, [dispatch, userConfigurations, apps, downloading, removing]);
 
   // Filter apps based on search query
   useEffect(() => {
@@ -288,6 +302,20 @@ export default function HomeScreen() {
       setFilteredApps(filtered);
     }
   }, [searchQuery, apps]);
+
+  if (!isSignedIn) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.signInContainer}>
+          <View style={styles.overlay}>
+            <View style={styles.modal}>
+              <SignInMessage message="To view your apps, please sign in" />
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -332,6 +360,7 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={{
             minHeight: windowHeight - 3 * tabBarHeight,
+            paddingBottom: tabBarHeight,
           }}
           showsVerticalScrollIndicator={false}
           onScrollBeginDrag={Keyboard.dismiss}
@@ -365,6 +394,28 @@ export default function HomeScreen() {
 
 const createStyles = (colorScheme: "light" | "dark") =>
   StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      justifyContent: "space-between",
+    },
+    signInContainer: {
+      flex: 1,
+      justifyContent: "space-between",
+    },
+    overlay: {
+      flex: 1,
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modal: {
+      backgroundColor: Colors[colorScheme].primaryBackgroundColor,
+      padding: 30,
+      borderRadius: 16,
+      width: "90%",
+      alignItems: "center",
+    },
     searchContainer: {
       flexDirection: "row",
       alignItems: "center",

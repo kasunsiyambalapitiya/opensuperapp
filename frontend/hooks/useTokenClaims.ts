@@ -37,9 +37,9 @@ export const useTokenClaims = (): DecodedAccessToken | null => {
     [accessToken, idToken]
   );
 
-  // A mid-session refresh writes new tokens to SecureStore without dispatching,
-  // and a screen can mount before `restoreAuth` resolves, so Redux having
-  // nothing is not the same as being signed out.
+  // A screen can mount before `restoreAuth` resolves, and a session restored
+  // while the network is down has no tokens in Redux until the next refresh, so
+  // Redux having nothing is not the same as being signed out.
   const needsFallback = !reduxClaims?.jobtitle && !reduxClaims?.phone_number;
 
   useEffect(() => {

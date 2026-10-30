@@ -23,12 +23,15 @@ import {
 } from "@/constants/Constants";
 import {
   addDownloading,
+  addRemoving,
   MicroApp,
   removeDownloading,
+  removeRemoving,
   setApps,
   updateAppStatus,
   updateDownloadProgress,
 } from "@/context/slices/appSlice";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { AppDispatch, store } from "@/context/store";
 import { buildAppsWithTokens } from "@/utils/exchangedTokenRehydrator";
 import { persistAppsWithoutTokens } from "@/utils/exchangedTokenStore";
@@ -66,8 +69,7 @@ const ensureDirectoryExists = (directory: Directory): void => {
 export const downloadMicroApp = async (
   dispatch: AppDispatch,
   appId: string,
-  downloadUrl: string | null,
-  onLogout: () => Promise<void>
+  downloadUrl: string | null
 ): Promise<boolean> => {
   try {
     dispatch(addDownloading(appId)); // Downloading status for indicator
@@ -80,15 +82,35 @@ export const downloadMicroApp = async (
     await downloadAndSaveFile(dispatch, appId, downloadUrl); // Download react production build
     dispatch(updateDownloadProgress({ appId, progress: 70 }));
 
-    await unzipFile(dispatch, appId); // Unzip downloaded zip file
+    const installed = await unzipFile(appId); // Unzip downloaded zip file
     dispatch(updateDownloadProgress({ appId, progress: 90 }));
 
-    await UpdateUserConfiguration(appId, DOWNLOADED, onLogout); // Update user configurations
+    // The user config list has to gain the app before its status flips: the My
+    // Apps screen reconciles what is on disk against that list, and would
+    // uninstall the app again if it saw the new status first.
+    // A rejected write reports itself by returning false, not by throwing, and
+    // has already rolled the list back — so flipping the status here would
+    // leave an installed app the sync effect immediately uninstalls.
+    const entitled = await UpdateUserConfiguration(appId, DOWNLOADED); // Update user configurations
+    if (!entitled) {
+      throw new Error("Failed to update user configuration.");
+    }
+
+    dispatch(
+      updateAppStatus({
+        appId,
+        status: DOWNLOADED,
+        webViewUri: installed.webViewUri,
+        clientId: installed.clientId,
+        displayMode: installed.displayMode,
+        requiredPermissions: installed.requiredPermissions,
+      })
+    );
     dispatch(updateDownloadProgress({ appId, progress: 100 }));
-    
+
     return true;
   } catch (error) {
-    await UpdateUserConfiguration(appId, NOT_DOWNLOADED, onLogout); // Update user configurations
+    await UpdateUserConfiguration(appId, NOT_DOWNLOADED); // Update user configurations
     Alert.alert("Error", "Failed to download or save the file.");
     return false;
   } finally {
@@ -113,7 +135,7 @@ const downloadAndSaveFile = async (
   }
 };
 
-const unzipFile = async (dispatch: AppDispatch, appId: string) => {
+const unzipFile = async (appId: string) => {
   try {
     const microAppsDir = getMicroAppsDirectory();
     const zipFile = new File(microAppsDir, `${appId}.zip`);
@@ -159,16 +181,12 @@ const unzipFile = async (dispatch: AppDispatch, appId: string) => {
 
     const relativeUri = Paths.relative(Paths.document, indexFile);
 
-    dispatch(
-      updateAppStatus({
-        appId,
-        status: DOWNLOADED,
-        webViewUri: encodeURI(relativeUri),
-        clientId: microAppConfig.clientId,
-        displayMode: microAppConfig.displayMode,
-        requiredPermissions: microAppConfig.requiredPermissions,
-      })
-    );
+    return {
+      webViewUri: encodeURI(relativeUri),
+      clientId: microAppConfig.clientId as string,
+      displayMode: microAppConfig.displayMode,
+      requiredPermissions: microAppConfig.requiredPermissions,
+    };
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : String(error);
@@ -241,15 +259,27 @@ const EMPTY_MICRO_APP_CONFIG = {
   requiredPermissions: [] as string[],
 };
 
-export const removeMicroApp = async (
-  dispatch: AppDispatch,
-  appId: string,
-  onLogout: () => Promise<void>
-) => {
+export const removeMicroApp = async (dispatch: AppDispatch, appId: string) => {
   try {
+    // Marks the app busy for the whole removal. The My Apps screen reconciles
+    // disk against the user's app list, and every intermediate state here looks
+    // to it like something to undo.
+    dispatch(addRemoving(appId));
+
     const microAppsDir = getMicroAppsDirectory();
     const extractedDir = new Directory(microAppsDir, `${appId}-extracted`);
     const zipFile = new File(microAppsDir, `${appId}.zip`);
+
+    // Drop the entitlement before flipping the status. The status dispatch
+    // re-triggers the My Apps sync effect, which would otherwise still see this
+    // app as entitled but missing from disk and immediately re-download it.
+    // A rejected write returns false rather than throwing and rolls the list
+    // back, so the app stays entitled. Deleting the files anyway is what makes
+    // the sync effect download it again.
+    const unentitled = await UpdateUserConfiguration(appId, NOT_DOWNLOADED);
+    if (!unentitled) {
+      throw new Error("Failed to update user configuration.");
+    }
 
     if (extractedDir.exists) {
       extractedDir.delete();
@@ -269,9 +299,10 @@ export const removeMicroApp = async (
         displayMode: DEFAULT_VIEWING_MODE,
       })
     );
-    await UpdateUserConfiguration(appId, NOT_DOWNLOADED, onLogout); // Update user configurations
   } catch (error) {
     Alert.alert("Error", "Failed to remove the app.");
+  } finally {
+    dispatch(removeRemoving(appId));
   }
 };
 
@@ -281,14 +312,15 @@ const loadStoredApps = async (): Promise<MicroApp[]> => {
   return storedAppsJson ? JSON.parse(storedAppsJson) : [];
 };
 
-const fetchLatestApps = async (
-  onLogout: () => Promise<void>
-): Promise<MicroApp[]> => {
-  const response = await apiRequest(
-    { url: `${BASE_URL}/micro-apps`, method: "GET" },
-    onLogout
-  );
-  return response?.data || [];
+// Null when no request went out (no token, or the refresh failed), so the caller can tell
+// that apart from a list that came back empty.
+const fetchLatestApps = async (): Promise<MicroApp[] | null> => {
+  const response = await apiRequest({
+    url: `${BASE_URL}/micro-apps`,
+    method: "GET",
+  });
+  if (!response) return null;
+  return response.data || [];
 };
 
 const shouldUpdateApp = (storedApp: MicroApp, latestApp: MicroApp): boolean => {
@@ -324,25 +356,27 @@ const mergeAppData = (latestApp: MicroApp, storedApp?: MicroApp): MicroApp => {
   };
 };
 
-// Load app list and if updates available update apps
+// Load app list and if updates available update apps. Resolves true only when the latest
+// list was fetched and applied, so a caller can tell a real update check from a skipped one.
 export const loadMicroAppDetails = async (
   dispatch: AppDispatch,
-  onLogout: () => Promise<void>,
   onUpdateStart?: (appId: string) => void,
   onUpdateEnd?: (appId: string) => void
-) => {
+): Promise<boolean> => {
   try {
     // Load stored apps from AsyncStorage
     const storedApps = await loadStoredApps();
 
-    // Abort if the user logged out during the async operation
-    if (!store.getState().auth.userId) return;
+    // Abort if the session ended during the async operation. On the session, not
+    // userId: a session restored offline is signed in with Redux auth cleared.
+    if (!selectIsSignedIn(store.getState())) return false;
 
     // Dispatch stored apps initially
     dispatch(setApps(storedApps));
 
     // Fetch latest micro apps list from API
-    const latestApps = await fetchLatestApps(onLogout);
+    const latestApps = await fetchLatestApps();
+    if (!latestApps) return false;
 
     if (latestApps.length > 0) {
       // Update apps list with status and webViewUri
@@ -357,8 +391,7 @@ export const loadMicroAppDetails = async (
           downloadMicroApp(
             dispatch,
             latestApp.appId,
-            latestApp.versions[0].downloadUrl,
-            onLogout
+            latestApp.versions[0].downloadUrl
           ).finally(() => {
             onUpdateEnd?.(latestApp.appId);
           });
@@ -367,15 +400,18 @@ export const loadMicroAppDetails = async (
         return mergeAppData(latestApp, storedApp);
       });
 
-      // Abort if the user logged out during the API fetch
-      if (!store.getState().auth.userId) return;
+      // Abort if the session ended during the API fetch
+      if (!selectIsSignedIn(store.getState())) return false;
 
       // Update Redux and AsyncStorage
       dispatch(setApps(await buildAppsWithTokens(apps)));
       await persistAppsWithoutTokens(apps);
     }
+    return true;
   } catch (error) {
+    // The list already on screen came from disk and is still the user's. Clearing it is
+    // for the end of a session (endSession), not for a request that did not get through.
     console.error("Error loading micro apps:", error);
-    dispatch(setApps([]));
+    return false;
   }
 };

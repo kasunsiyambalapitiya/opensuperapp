@@ -18,6 +18,7 @@ import BusinessCardEmptyState from "@/components/businessCard/BusinessCardEmptyS
 import BusinessCardHeader from "@/components/businessCard/BusinessCardHeader";
 import BusinessCardPreview from "@/components/businessCard/BusinessCardPreview";
 import BusinessCardQrModal from "@/components/businessCard/BusinessCardQrModal";
+import WalletDisclaimerSheet from "@/components/businessCard/WalletDisclaimerSheet";
 import { Colors } from "@/constants/Colors";
 import { isIos } from "@/constants/Constants";
 import { useBusinessCardActions } from "@/hooks/useBusinessCardActions";
@@ -36,12 +37,18 @@ const BusinessCardSheet = ({ visible, onClose }: Props) => {
     data,
     passRef,
     qrVisible,
+    disclaimerVisible,
     saving,
+    walletDownloadEnabled,
+    passInWallet,
     openQr,
     closeQr,
+    showDisclaimer,
+    hideDisclaimer,
     shareContactFile,
     saveAsImage,
     savePass,
+    openWallet,
   } = useBusinessCardActions(visible);
 
   return (
@@ -65,14 +72,22 @@ const BusinessCardSheet = ({ visible, onClose }: Props) => {
             />
             <BusinessCardActions
               saving={saving}
+              walletDownloadEnabled={walletDownloadEnabled}
+              passInWallet={passInWallet}
               onSavePass={savePass}
+              onOpenWallet={openWallet}
               onShareVCard={shareContactFile}
               onSaveAsImage={saveAsImage}
+              onShowDisclaimer={showDisclaimer}
             />
             <BusinessCardQrModal
               visible={qrVisible}
               data={data}
               onClose={closeQr}
+            />
+            <WalletDisclaimerSheet
+              visible={disclaimerVisible}
+              onClose={hideDisclaimer}
             />
           </>
         )}

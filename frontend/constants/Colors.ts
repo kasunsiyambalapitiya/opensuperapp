@@ -43,6 +43,8 @@ interface ThemeColors {
   contentItemBackgroundColor: string;
   overLayColor: string;
   modalBorderColor: string;
+  offlineBackgroundColor: string;
+  offlineTextColor: string;
 }
 
 // App colors interface
@@ -97,6 +99,8 @@ export const Colors: AppColors = {
 
     overLayColor: "#FFFFFF78", // White overlay (about 47% opacity)
     modalBorderColor: "#D0D0D0", // Modal outline border color
+    offlineBackgroundColor: "#FF6969", // No-connection toast
+    offlineTextColor: "#000000", // Text on the no-connection toast (7.5:1)
   },
 
   dark: {
@@ -130,6 +134,8 @@ export const Colors: AppColors = {
 
     overLayColor: "#00000078", // Black overlay (about 47% opacity)
     modalBorderColor: "#EBEBEB", // Modal outline border color
+    offlineBackgroundColor: "#A33A3A", // No-connection toast, darkened for dark mode
+    offlineTextColor: "#FFFFFF", // Text on the no-connection toast (6.5:1)
   },
 
   companyOrange: "#FF7300", // Company brand accent color

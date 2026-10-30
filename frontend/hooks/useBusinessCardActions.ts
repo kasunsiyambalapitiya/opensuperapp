@@ -16,8 +16,8 @@
 import { isIos } from "@/constants/Constants";
 import { RootState } from "@/context/store";
 import { useTokenClaims } from "@/hooks/useTokenClaims";
-import { useWalletPassEnabled } from "@/hooks/useWalletPassEnabled";
-import { logout } from "@/services/authService";
+import { useWalletPassConfig } from "@/hooks/useWalletPassConfig";
+import { useWalletPassPresence } from "@/hooks/useWalletPassPresence";
 import { shareCardImage, shareVCard } from "@/services/businessCardService";
 import { saveBusinessCardPass } from "@/services/walletPassService";
 import { toBusinessCardData } from "@/utils/businessCard";
@@ -38,13 +38,24 @@ export const useBusinessCardActions = (visible: boolean) => {
   // /user-info.
   const claims = useTokenClaims();
   const passRef = useRef<View>(null);
+  // `saving` only reaches the wallet badge on the render it schedules, and
+  // taps queued while the JS thread is busy all arrive before that. A second
+  // one through here is a second pass issued and a second audit row.
+  const savingRef = useRef(false);
   const [qrVisible, setQrVisible] = useState(false);
+  const [disclaimerVisible, setDisclaimerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
-  const walletPassEnabled = useWalletPassEnabled();
+  const { walletDownloadEnabled } = useWalletPassConfig();
+  // The pass serial number is the JWT `userid`, not the work email — the same
+  // identity key the wallet service builds passes under.
+  const { inWallet, markAdded, openInWallet } = useWalletPassPresence(
+    visible,
+    claims?.userid,
+  );
 
   const data = useMemo(
     () => toBusinessCardData(userInfo, claims),
-    [userInfo, claims]
+    [userInfo, claims],
   );
 
   useEffect(() => {
@@ -53,12 +64,14 @@ export const useBusinessCardActions = (visible: boolean) => {
       return;
     }
 
-    // The sheet stays mounted while it is hidden, so a QR overlay left open
-    // would pop straight back up the next time the sheet is shown. Resetting
-    // here rather than in the close handlers covers every way the sheet can go
-    // away — on iOS the pageSheet swipe-to-dismiss never fires onRequestClose,
-    // and the parent can drop `visible` on its own at any time.
+    // The sheet stays mounted while it is hidden, so a QR overlay or a
+    // disclaimer left open would pop straight back up the next time the sheet
+    // is shown. Resetting here rather than in the close handlers covers every
+    // way the sheet can go away — on iOS the pageSheet swipe-to-dismiss never
+    // fires onRequestClose, and the parent can drop `visible` on its own at any
+    // time.
     setQrVisible(false);
+    setDisclaimerVisible(false);
   }, [visible]);
 
   const openQr = () => {
@@ -67,6 +80,13 @@ export const useBusinessCardActions = (visible: boolean) => {
   };
 
   const closeQr = () => setQrVisible(false);
+
+  const showDisclaimer = () => {
+    setDisclaimerVisible(true);
+    logAnalyticsEvent("wallet_disclaimer_viewed");
+  };
+
+  const hideDisclaimer = () => setDisclaimerVisible(false);
 
   const shareContactFile = async () => {
     if (!data) {
@@ -84,7 +104,7 @@ export const useBusinessCardActions = (visible: boolean) => {
     } catch (error) {
       Alert.alert(
         "Couldn't save image",
-        "Something went wrong while exporting your card."
+        "Something went wrong while exporting your card.",
       );
       console.error("Failed to save business card as image", error);
     }
@@ -93,25 +113,31 @@ export const useBusinessCardActions = (visible: boolean) => {
   const savePass = async () => {
     // The .vcf is a real answer to "I want this contact somewhere" while the
     // pass path is still gated behind the env flag and remote config.
-    if (!walletPassEnabled) {
+    if (!walletDownloadEnabled) {
       Alert.alert(
         "Not available yet",
         `Saving to ${isIos ? "Apple" : "Google"} Wallet is still being rolled out. You can share your contact file instead.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Share contact file", onPress: shareContactFile },
-        ]
+        ],
       );
       return;
     }
 
+    if (savingRef.current) {
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     try {
-      const added = await saveBusinessCardPass(walletPassEnabled, logout);
+      const added = await saveBusinessCardPass(walletDownloadEnabled);
       if (added) {
         logAnalyticsEvent("wallet_pass_added");
+        await markAdded();
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -120,11 +146,17 @@ export const useBusinessCardActions = (visible: boolean) => {
     data,
     passRef,
     qrVisible,
+    disclaimerVisible,
     saving,
+    walletDownloadEnabled,
+    passInWallet: inWallet,
     openQr,
     closeQr,
+    showDisclaimer,
+    hideDisclaimer,
     shareContactFile,
     saveAsImage,
     savePass,
+    openWallet: openInWallet,
   };
 };

@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { BASE_URL, LAST_SENT_FCM_TOKEN } from "@/constants/Constants";
+import { enqueueForReconnect } from "@/utils/offlineQueue";
 import { apiRequest } from "@/utils/requestHandler";
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { deleteItemAsync, getItemAsync, setItemAsync } from "expo-secure-store";
@@ -57,13 +58,10 @@ export const disableFCMToken = createAsyncThunk(
       }
       const url = `${BASE_URL}/users/fcm-tokens?fcmToken=${fcmToken}`;
 
-      const response = await apiRequest(
-        {
-          url,
-          method: "DELETE",
-        },
-        async () => {}
-      );
+      const response = await apiRequest({
+        url,
+        method: "DELETE",
+      });
 
       if (response?.status === 200) {
         return response.data;
@@ -101,18 +99,15 @@ export const clearLastSentFcmToken = createAsyncThunk(
 export const pushFcmToken = createAsyncThunk(
   "device/pushFcmToken",
   async (
-    { fcmToken, onLogout }: { fcmToken: string; onLogout: () => Promise<void> },
-    { rejectWithValue }
+    { fcmToken }: { fcmToken: string },
+    { dispatch, rejectWithValue }
   ) => {
     try {
       const url = `${BASE_URL}/users/fcm-tokens?fcmToken=${fcmToken}`;
-      const response = await apiRequest(
-        {
-          url,
-          method: "POST",
-        },
-        onLogout
-      );
+      const response = await apiRequest({
+        url,
+        method: "POST",
+      });
 
       if (response?.status === 200) {
         await setItemAsync(LAST_SENT_FCM_TOKEN, fcmToken);
@@ -123,6 +118,14 @@ export const pushFcmToken = createAsyncThunk(
       }
     } catch (error: any) {
       console.error("Failed to push FCM token:", error);
+      // It never reached the backend, and nothing else retries it before the next launch:
+      // the push hook only runs again when the access token or the FCM token changes.
+      // Safe to repeat, as the backend upserts on the token.
+      if (!error?.response) {
+        enqueueForReconnect("pushFcmToken", () =>
+          dispatch(pushFcmToken({ fcmToken }))
+        );
+      }
       return rejectWithValue(error);
     }
   }

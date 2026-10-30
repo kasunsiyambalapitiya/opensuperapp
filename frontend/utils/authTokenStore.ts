@@ -15,6 +15,7 @@
 // under the License.
 import {
   ACCESS_TOKEN,
+  AUTH_BUNDLE_KEY,
   AUTH_EMAIL_KEY,
   EXPIRES_AT_KEY,
   ID_TOKEN,
@@ -32,22 +33,50 @@ export type SecureAuthData = {
   expiresAt: number;
 };
 
-export async function saveAuthDataToSecureStore(authData: SecureAuthData) {
-  await Promise.all([
-    setItemAsync(ACCESS_TOKEN, authData.accessToken),
-    setItemAsync(REFRESH_TOKEN, authData.refreshToken),
-    setItemAsync(ID_TOKEN, authData.idToken),
-    setItemAsync(EXPIRES_AT_KEY, String(authData.expiresAt)),
-    authData.email
-      ? setItemAsync(AUTH_EMAIL_KEY, authData.email)
-      : deleteItemAsync(AUTH_EMAIL_KEY),
-    authData.userId
-      ? setItemAsync(USER_ID_KEY, authData.userId)
-      : deleteItemAsync(USER_ID_KEY),
-  ]);
+const LEGACY_KEYS = [
+  ACCESS_TOKEN,
+  REFRESH_TOKEN,
+  ID_TOKEN,
+  EXPIRES_AT_KEY,
+  AUTH_EMAIL_KEY,
+  USER_ID_KEY,
+];
+
+/**
+ * Best-effort: the bundle is already the source of truth by this point, so a
+ * failed delete only leaves dead keys behind, never a reason to fail the caller.
+ */
+async function deleteLegacyKeys() {
+  await Promise.allSettled(LEGACY_KEYS.map((key) => deleteItemAsync(key)));
 }
 
-export async function loadAuthDataFromSecureStore(): Promise<SecureAuthData | null> {
+function parseBundle(raw: string): SecureAuthData | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const bundle = parsed as Partial<SecureAuthData>;
+  if (!bundle.accessToken || !bundle.refreshToken || !bundle.idToken) {
+    return null;
+  }
+  const expiresAt = bundle.expiresAt;
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return null;
+
+  return {
+    accessToken: bundle.accessToken,
+    refreshToken: bundle.refreshToken,
+    idToken: bundle.idToken,
+    email: bundle.email || undefined,
+    userId: bundle.userId || undefined,
+    expiresAt,
+  };
+}
+
+async function loadLegacyAuthData(): Promise<SecureAuthData | null> {
   const [accessToken, refreshToken, idToken, expiresAtStr, email, userId] =
     await Promise.all([
       getItemAsync(ACCESS_TOKEN),
@@ -70,13 +99,68 @@ export async function loadAuthDataFromSecureStore(): Promise<SecureAuthData | nu
   };
 }
 
+async function saveLegacyAuthData(authData: SecureAuthData) {
+  await Promise.all([
+    setItemAsync(ACCESS_TOKEN, authData.accessToken),
+    setItemAsync(REFRESH_TOKEN, authData.refreshToken),
+    setItemAsync(ID_TOKEN, authData.idToken),
+    setItemAsync(EXPIRES_AT_KEY, String(authData.expiresAt)),
+    authData.email
+      ? setItemAsync(AUTH_EMAIL_KEY, authData.email)
+      : deleteItemAsync(AUTH_EMAIL_KEY),
+    authData.userId
+      ? setItemAsync(USER_ID_KEY, authData.userId)
+      : deleteItemAsync(USER_ID_KEY),
+  ]);
+}
+
+// One key, one write: over six keys, a kill mid-save could leave a new access
+// token paired with the previous refresh token.
+//
+// expo-secure-store only warns when a value passes its 2048-byte limit, and three JWTs
+// in one blob can pass it. Such a write still resolves, so reading it back is the only
+// proof it landed - and the per-field keys are the one fallback left once they are gone.
+export async function saveAuthDataToSecureStore(authData: SecureAuthData) {
+  const bundle = JSON.stringify(authData);
+
+  let stored: string | null = null;
+  try {
+    await setItemAsync(AUTH_BUNDLE_KEY, bundle);
+    stored = await getItemAsync(AUTH_BUNDLE_KEY);
+  } catch (error) {
+    console.warn("Could not write the auth bundle", error);
+  }
+
+  if (stored === bundle) {
+    await deleteLegacyKeys();
+    return;
+  }
+
+  // Too large for one value on this platform. An atomic write is worth less than a
+  // session, so keep the per-field keys and drop the bundle a later read would prefer.
+  console.warn("Auth bundle did not persist; storing per-field keys instead.");
+  await saveLegacyAuthData(authData);
+  await deleteItemAsync(AUTH_BUNDLE_KEY);
+}
+
+export async function loadAuthDataFromSecureStore(): Promise<SecureAuthData | null> {
+  const raw = await getItemAsync(AUTH_BUNDLE_KEY);
+  if (raw) {
+    const bundle = parseBundle(raw);
+    if (bundle) return bundle;
+    // Corrupt or half-written: an older install may still hold the legacy keys.
+  }
+
+  const legacy = await loadLegacyAuthData();
+  if (!legacy) return null;
+
+  await saveAuthDataToSecureStore(legacy);
+  return legacy;
+}
+
 export async function clearAuthDataFromSecureStore() {
   await Promise.all([
-    deleteItemAsync(ACCESS_TOKEN),
-    deleteItemAsync(REFRESH_TOKEN),
-    deleteItemAsync(ID_TOKEN),
-    deleteItemAsync(EXPIRES_AT_KEY),
-    deleteItemAsync(AUTH_EMAIL_KEY),
-    deleteItemAsync(USER_ID_KEY),
+    deleteItemAsync(AUTH_BUNDLE_KEY),
+    ...LEGACY_KEYS.map((key) => deleteItemAsync(key)),
   ]);
 }

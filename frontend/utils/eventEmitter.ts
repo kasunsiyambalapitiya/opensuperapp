@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import { Event } from "@/constants/enums/Event";
+import { SessionSignal } from "@/types/auth.types";
 
 type EventHandler<T> = (data: T) => void;
 
@@ -80,5 +81,19 @@ class EventEmitter<T> {
 }
 
 const qrScannerEmitter = new EventEmitter<string>();
+/**
+ * What token refresh learns about the session. tokenRefresh has no store access, so it
+ * reports here and hooks/useSessionListener, mounted once, turns it into Redux state.
+ */
+const authEmitter = new EventEmitter<SessionSignal>();
 
-export { qrScannerEmitter };
+/**
+ * Whether the app is currently reaching the backend, as a boolean payload.
+ *
+ * Evidence, not a connectivity API: it turns false when a request has actually failed at
+ * network level and true again when one succeeds. A radio that claims to be connected
+ * behind a captive portal still reports false here, which is the case the user is in.
+ */
+const reachabilityEmitter = new EventEmitter<boolean>();
+
+export { authEmitter, qrScannerEmitter, reachabilityEmitter };

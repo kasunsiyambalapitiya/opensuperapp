@@ -13,18 +13,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import {
-  IS_WALLET_SERVICE_CONFIGURED,
-  isIos,
-  WALLET_SERVICE_BASE_URL,
-} from "@/constants/Constants";
+import { BASE_URL, isIos } from "@/constants/Constants";
 import { presentApplePass } from "@/services/wallet/applePassPresenter";
-import { apiRequest } from "@/utils/requestHandler";
+import { apiRequest, getAccessToken } from "@/utils/requestHandler";
 import { File, Paths } from "expo-file-system";
 import { Alert, Linking } from "react-native";
 
-const PKPASS_URL = `${WALLET_SERVICE_BASE_URL}/api/v1/business-card/pkpass`;
-const GOOGLE_SAVE_URL_ENDPOINT = `${WALLET_SERVICE_BASE_URL}/api/v1/business-card/google-save-url`;
+// The wallet service is not called directly: the backend proxies both endpoints,
+// so it can build the card from the caller's own JWT claims and keep the wallet
+// service's credentials off the device.
+const PKPASS_URL = `${BASE_URL}/business-card/pkpass`;
+const GOOGLE_SAVE_URL_ENDPOINT = `${BASE_URL}/business-card/google-save-url`;
 
 type GoogleSaveUrlResponse = {
   saveUrl: string;
@@ -40,32 +39,29 @@ const isSuccessStatus = (status: number | undefined): boolean =>
 const hasPassBytes = (data: unknown): boolean =>
   ((data as ArrayBuffer | undefined)?.byteLength ?? 0) > 0;
 
-// Repeated at the call site so no caller can fire a request that axios cannot
-// resolve, independent of the button-level gate in useWalletPassEnabled.
-const isWalletServiceConfigured = (): boolean => {
-  if (!IS_WALLET_SERVICE_CONFIGURED) {
-    console.warn(
-      "EXPO_PUBLIC_WALLET_SERVICE_BASE_URL is not set; skipping the wallet pass request."
-    );
-    return false;
-  }
+// Both pass endpoints call the wallet service with the caller's own token, so
+// they are the only backend calls that need `x-user-assertion`: a gateway in
+// front of the backend overwrites `x-jwt-assertion` with a JWT it mints itself
+// and passes this header through untouched. It is set here rather than in the
+// shared request handler so the raw token is not copied onto every /micro-apps,
+// /user-info and notification poll as well — the chat agent sets it the same
+// way, per call.
+const userAssertionHeader = async (): Promise<Record<string, string>> => ({
+  "x-user-assertion": await getAccessToken(),
+});
 
-  return true;
-};
-
-export const addToAppleWallet = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
-): Promise<boolean> => {
-  if (!enabled || !isWalletServiceConfigured()) {
+export const addToAppleWallet = async (enabled: boolean): Promise<boolean> => {
+  if (!enabled) {
     return false;
   }
 
   try {
-    const response = await apiRequest(
-      { url: PKPASS_URL, method: "GET", responseType: "arraybuffer" },
-      onLogout
-    );
+    const response = await apiRequest({
+      url: PKPASS_URL,
+      method: "GET",
+      responseType: "arraybuffer",
+      headers: await userAssertionHeader(),
+    });
 
     if (
       !response ||
@@ -96,19 +92,17 @@ export const addToAppleWallet = async (
   }
 };
 
-export const addToGoogleWallet = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
-): Promise<boolean> => {
-  if (!enabled || !isWalletServiceConfigured()) {
+export const addToGoogleWallet = async (enabled: boolean): Promise<boolean> => {
+  if (!enabled) {
     return false;
   }
 
   try {
-    const response = await apiRequest(
-      { url: GOOGLE_SAVE_URL_ENDPOINT, method: "GET" },
-      onLogout
-    );
+    const response = await apiRequest({
+      url: GOOGLE_SAVE_URL_ENDPOINT,
+      method: "GET",
+      headers: await userAssertionHeader(),
+    });
 
     const saveUrl = (response?.data as GoogleSaveUrlResponse | undefined)
       ?.saveUrl;
@@ -134,9 +128,6 @@ export const addToGoogleWallet = async (
 };
 
 export const saveBusinessCardPass = async (
-  enabled: boolean,
-  onLogout: () => Promise<void>
+  enabled: boolean
 ): Promise<boolean> =>
-  isIos
-    ? addToAppleWallet(enabled, onLogout)
-    : addToGoogleWallet(enabled, onLogout);
+  isIos ? addToAppleWallet(enabled) : addToGoogleWallet(enabled);

@@ -17,10 +17,10 @@
     "lint:ci": "eslint --ext .js,.jsx,.ts,.tsx --max-warnings=0",
     "write-firebase-files": "npx --yes @dotenvx/dotenvx run -f .env -- node ./scripts/writeFirebaseFiles.ts",
     "postinstall": "npm run write-firebase-files || true && npm install --prefix ..",
-    "build:android:local": "npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform android --local",
-    "build:android:development:apk": "npx --yes @dotenvx/dotenvx run -f .env -- eas build -p android --profile development --local",
-    "build:ios:development": "npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform ios --profile development --local",
-    "build:ios:production": "npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform ios --profile production --local",
+    "build:android:local": "EAS_LOCAL_BUILD_PLUGIN_PATH=$PWD/scripts/eas-local-build-plugin.sh npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform android --local",
+    "build:android:development:apk": "EAS_LOCAL_BUILD_PLUGIN_PATH=$PWD/scripts/eas-local-build-plugin.sh npx --yes @dotenvx/dotenvx run -f .env -- eas build -p android --profile development --local",
+    "build:ios:development": "EAS_LOCAL_BUILD_PLUGIN_PATH=$PWD/scripts/eas-local-build-plugin.sh npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform ios --profile development --local",
+    "build:ios:production": "EAS_LOCAL_BUILD_PLUGIN_PATH=$PWD/scripts/eas-local-build-plugin.sh npx --yes @dotenvx/dotenvx run -f .env -- eas build --platform ios --profile production --local",
     "update:development": "npx --yes @dotenvx/dotenvx run -f .env -- eas update --platform android --channel development --message $MESSAGE && npx --yes @dotenvx/dotenvx run -f .env -- eas update --platform ios --channel development --message $MESSAGE",
     "update:production": "npx --yes @dotenvx/dotenvx run -f .env -- eas update --platform android --channel production --message $MESSAGE && npx --yes @dotenvx/dotenvx run -f .env -- eas update --platform ios --channel production --message $MESSAGE"
   },
@@ -28,12 +28,19 @@
     "*.{js,jsx,ts,tsx}": "eslint --fix --max-warnings=0"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ],
+    "moduleNameMapper": {
+      "^immer$": "<rootDir>/node_modules/immer/dist/cjs/index.js"
+    }
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@notifee/react-native": "^9.1.8",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
     "@react-native-firebase/app": "^23.8.8",
     "@react-native-firebase/messaging": "^23.8.8",
     "@react-native-firebase/remote-config": "^23.8.8",

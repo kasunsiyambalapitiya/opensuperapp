@@ -17,7 +17,7 @@ import { BASE_URL, USER_CONFIGURATIONS } from "@/constants/Constants";
 import { removeDuplicatesFromUserConfigs } from "@/utils/removeDuplicates";
 import { apiRequest } from "@/utils/requestHandler";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
+import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 interface AppArrangement {
   name: string;
@@ -45,12 +45,12 @@ const initialState: UserConfigState = {
 // Async function to fetch user configurations
 export const getUserConfigurations = createAsyncThunk(
   "userConfig/fetch",
-  async (onLogout: () => Promise<void>, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await apiRequest(
-        { url: `${BASE_URL}/users/user-configs`, method: "GET" },
-        onLogout
-      );
+      const response = await apiRequest({
+        url: `${BASE_URL}/users/user-configs`,
+        method: "GET",
+      });
 
       if (response?.status === 200 && response?.data) {
         // Remove duplicates from configValue arrays in response
@@ -86,6 +86,34 @@ const userConfigSlice = createSlice({
     clearUserConfigurations: (state) => {
       state.configurations = [];
     },
+    // Mirrors a single config entry that has already been written to
+    // AsyncStorage/the server back into Redux, so in-memory readers don't work
+    // off a boot-time snapshot (which makes the My Apps reconciler undo the
+    // download or removal that just happened). Only the named key is touched;
+    // every other entry (and its uuid) is left as-is.
+    setUserConfigValue: (
+      state,
+      action: PayloadAction<{
+        configKey: string;
+        configValue: UserConfig["configValue"];
+        isActive?: number;
+      }>
+    ) => {
+      const { configKey, configValue, isActive } = action.payload;
+      const existing = state.configurations.find(
+        (config) => config.configKey === configKey
+      );
+      if (existing) {
+        existing.configValue = configValue;
+        if (isActive !== undefined) existing.isActive = isActive;
+      } else {
+        state.configurations.push({
+          configKey,
+          configValue,
+          isActive: isActive ?? 1,
+        });
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -102,6 +130,7 @@ const userConfigSlice = createSlice({
   },
 });
 
-export const { clearUserConfigurations } = userConfigSlice.actions;
+export const { clearUserConfigurations, setUserConfigValue } =
+  userConfigSlice.actions;
 
 export default userConfigSlice.reducer;

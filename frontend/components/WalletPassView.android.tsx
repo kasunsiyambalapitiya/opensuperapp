@@ -13,9 +13,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import PassField from "@/components/businessCard/PassField";
-import { walletPassStyles as styles } from "@/components/businessCard/walletPassStyles";
-import { PASS } from "@/constants/BusinessCard";
+import GooglePassField from "@/components/businessCard/GooglePassField";
+import { googlePassStyles as styles } from "@/components/businessCard/googlePassStyles";
+import { GOOGLE_PASS } from "@/constants/GooglePass";
 import { BusinessCardData } from "@/types/businessCard.types";
 import { buildVCard } from "@/utils/vcard";
 import React, { forwardRef } from "react";
@@ -28,7 +28,7 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 
-// The same artwork the pass bundle ships as icon.png and logo.png.
+// The same artwork the pass class ships as its logo.
 const PASS_LOGO: ImageSourcePropType = require("@/assets/images/wso2-pulse-white.png");
 
 type Props = {
@@ -36,67 +36,44 @@ type Props = {
   onBarcodePress?: () => void;
 };
 
+// The Google Wallet pass, laid out as Wallet renders a Generic pass rather than
+// as a copy of the Apple card: the logo and card title share the top row, the
+// subheader sits above the header, the text modules follow, and the card is as
+// tall as its content instead of a fixed 2:3.
 const WalletPassView = forwardRef<View, Props>(
   ({ data, onBarcodePress }, ref) => {
     const fullName = `${data.firstName} ${data.lastName}`.trim();
-    // Same precedence as pass.go's frontPhone: work number, then mobile.
     const frontPhone = data.workPhone ?? data.mobile;
 
     return (
       <View ref={ref} style={styles.pass} collapsable={false}>
-        <Image
-          source={PASS_LOGO}
-          style={styles.logo}
-          resizeMode="contain"
-          accessibilityIgnoresInvertColors
-        />
-
-        <View style={styles.primaryRow}>
-          <View style={styles.primaryColumn}>
-            <Text
-              style={styles.primaryValue}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.6}
-            >
-              {fullName}
-            </Text>
-          </View>
-
-          {data.photoUri && (
-            <Image
-              source={{ uri: data.photoUri }}
-              style={styles.thumbnail}
-              resizeMode="cover"
-              accessibilityIgnoresInvertColors
-            />
-          )}
+        <View style={styles.titleRow}>
+          <Image
+            source={PASS_LOGO}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {data.organization}
+          </Text>
         </View>
 
         {data.jobTitle && (
-          <View style={styles.secondaryRow}>
-            <PassField label="Title" value={data.jobTitle} size="secondary" />
-          </View>
+          <Text style={styles.subheader} numberOfLines={1}>
+            {data.jobTitle}
+          </Text>
         )}
 
-        <View style={styles.auxiliaryRow}>
-          <PassField
-            label="Email"
-            value={data.workEmail}
-            size="auxiliary"
-            style={styles.auxiliaryColumn}
-          />
-          {frontPhone && (
-            <PassField
-              label="Phone"
-              value={frontPhone}
-              size="auxiliary"
-              style={styles.auxiliaryColumn}
-            />
-          )}
-        </View>
+        <Text style={styles.header} numberOfLines={2}>
+          {fullName}
+        </Text>
 
-        <View style={styles.spacer} />
+        {/* Two fields per row, which is the most Wallet lays out in one row. */}
+        <View style={styles.fieldRow}>
+          <GooglePassField label="Email" value={data.workEmail} />
+          {frontPhone && <GooglePassField label="Phone" value={frontPhone} />}
+        </View>
 
         <Pressable
           onPress={onBarcodePress}
@@ -107,15 +84,22 @@ const WalletPassView = forwardRef<View, Props>(
         >
           <QRCode
             value={buildVCard(data)}
-            size={PASS.barcodeSize}
+            size={GOOGLE_PASS.barcodeSize}
             backgroundColor="#FFFFFF"
             color="#000000"
             ecl="M"
           />
         </Pressable>
+
+        {/* Wallet prints `barcode.alternateText` under the barcode, falling
+            back to `barcode.value`. The value here is the whole vCard, so the
+            pass overrides the caption with "a human readable equivalent". */}
+        <Text style={styles.barcodeAlternateText} numberOfLines={1}>
+          {data.workEmail}
+        </Text>
       </View>
     );
-  },
+  }
 );
 
 WalletPassView.displayName = "WalletPassView";

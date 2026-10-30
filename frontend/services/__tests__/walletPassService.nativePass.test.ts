@@ -14,22 +14,21 @@
 // specific language governing permissions and limitations
 // under the License.
 import { addToAppleWallet } from "@/services/walletPassService";
-import { apiRequest } from "@/utils/requestHandler";
+import { apiRequest, getAccessToken } from "@/utils/requestHandler";
 import * as Sharing from "expo-sharing";
 import { Alert } from "react-native";
 
 jest.mock("@/utils/requestHandler", () => ({
   apiRequest: jest.fn(),
+  getAccessToken: jest.fn(),
 }));
 
-// The endpoint URLs are built when the service loads, and the service refuses
-// to request against an empty base URL, so pin one rather than depend on the
-// environment running the tests.
+// The endpoint URLs are built when the service loads, so the base URL is pinned
+// here rather than depending on the environment running the tests.
 jest.mock("@/constants/Constants", () => ({
   __esModule: true,
   ...jest.requireActual("@/constants/Constants"),
-  WALLET_SERVICE_BASE_URL: "https://wallet.example.com",
-  IS_WALLET_SERVICE_CONFIGURED: true,
+  BASE_URL: "https://backend.example.com",
 }));
 
 jest.mock("expo-sharing", () => ({
@@ -79,7 +78,10 @@ jest.mock("expo-file-system", () => {
   };
 });
 
-const onLogout = jest.fn().mockResolvedValue(undefined);
+// The two business-card endpoints are the only backend calls that pass the
+// caller's raw token on in `x-user-assertion`, so the token is pinned here to
+// assert the header is set per call rather than by the shared request handler.
+const ACCESS_TOKEN = "header.payload.signature";
 
 const okResponse = () => {
   (apiRequest as jest.Mock).mockResolvedValue({
@@ -91,6 +93,7 @@ const okResponse = () => {
 describe("addToAppleWallet — native add sheet", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getAccessToken as jest.Mock).mockResolvedValue(ACCESS_TOKEN);
     (Sharing.isAvailableAsync as jest.Mock).mockResolvedValue(true);
     (Sharing.shareAsync as jest.Mock).mockResolvedValue(undefined);
   });
@@ -100,7 +103,7 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(true);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(true);
+    await expect(addToAppleWallet(true)).resolves.toBe(true);
 
     expect(mockShowAddPassControllerFromFile).toHaveBeenCalledTimes(1);
     expect(Sharing.shareAsync).not.toHaveBeenCalled();
@@ -111,7 +114,7 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(true);
 
-    await addToAppleWallet(true, onLogout);
+    await addToAppleWallet(true);
 
     // PKAddPassesViewController's Swift side calls URL(fileURLWithPath:),
     // which reads a "file://" prefix as part of the path and then finds
@@ -128,14 +131,14 @@ describe("addToAppleWallet — native add sheet", () => {
     mockCanAddPasses.mockResolvedValue(true);
     mockShowAddPassControllerFromFile.mockResolvedValue(false);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(true)).resolves.toBe(false);
   });
 
   it("tells the user when the device cannot add passes at all", async () => {
     okResponse();
     mockCanAddPasses.mockResolvedValue(false);
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(true)).resolves.toBe(false);
 
     expect(Alert.alert).toHaveBeenCalled();
     // A share sheet cannot add a pass either, so offering one would be a
@@ -151,7 +154,7 @@ describe("addToAppleWallet — native add sheet", () => {
       new Error("NO_VIEW_CONTROLLER")
     );
 
-    await expect(addToAppleWallet(true, onLogout)).resolves.toBe(true);
+    await expect(addToAppleWallet(true)).resolves.toBe(true);
 
     expect(Sharing.shareAsync).toHaveBeenCalledWith(expect.any(String), {
       UTI: "com.apple.pkpass",
@@ -159,7 +162,7 @@ describe("addToAppleWallet — native add sheet", () => {
   });
 
   it("makes no request and opens nothing when the flag is off", async () => {
-    await expect(addToAppleWallet(false, onLogout)).resolves.toBe(false);
+    await expect(addToAppleWallet(false)).resolves.toBe(false);
 
     expect(apiRequest).not.toHaveBeenCalled();
     expect(mockCanAddPasses).not.toHaveBeenCalled();

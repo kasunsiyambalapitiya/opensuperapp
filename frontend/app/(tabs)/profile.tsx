@@ -19,15 +19,18 @@ import BusinessCardHeaderButton from "@/components/headers/BusinessCardHeaderBut
 import ProfileListItem from "@/components/ProfileListItem";
 import SignInMessage from "@/components/SignInMessage";
 import { Colors } from "@/constants/Colors";
+import { SUPER_APP_DEVELOPER_GROUP } from "@/constants/Constants";
+import { Event } from "@/constants/enums/Event";
 import { ScreenPaths } from "@/constants/ScreenPaths";
-import { disableFCMToken } from "@/context/slices/deviceSlice";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { getUserInfo } from "@/context/slices/userInfoSlice";
 import { AppDispatch, RootState } from "@/context/store";
 import { useTrackActiveScreen } from "@/hooks/useTrackActiveScreen";
-import { logout } from "@/services/authService";
+import { useWalletPassConfig } from "@/hooks/useWalletPassConfig";
 import { BasicUserInfo } from "@/types/basicUserInfo.types";
 import { DecodedAccessToken } from "@/types/decodeAccessToken.types";
-import { performLogout } from "@/utils/performLogout";
+import { authEmitter } from "@/utils/eventEmitter";
+import { signOut } from "@/utils/signOut";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useNavigation } from "expo-router";
@@ -36,6 +39,7 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useState,
 } from "react";
 import {
@@ -58,6 +62,7 @@ const SettingsScreen = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigation = useNavigation();
   const { accessToken } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
   const { userInfo } = useSelector((state: RootState) => state.userInfo);
   const colorScheme = useColorScheme();
   const styles = createStyles(colorScheme ?? "light");
@@ -69,17 +74,28 @@ const SettingsScreen = () => {
     avatarUri: "",
   });
   const [cardVisible, setCardVisible] = useState(false);
+  const { cardEnabled } = useWalletPassConfig();
 
   useTrackActiveScreen(ScreenPaths.PROFILE);
 
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () =>
-        accessToken ? (
+        isSignedIn && cardEnabled ? (
           <BusinessCardHeaderButton onPress={() => setCardVisible(true)} />
         ) : null,
     });
-  }, [navigation, accessToken]);
+  }, [navigation, isSignedIn, cardEnabled]);
+
+  const isSuperAppDeveloper = useMemo(() => {
+    if (!accessToken || !SUPER_APP_DEVELOPER_GROUP) return false;
+    try {
+      const decoded = jwtDecode<DecodedAccessToken>(accessToken);
+      return decoded.groups?.includes(SUPER_APP_DEVELOPER_GROUP) ?? false;
+    } catch {
+      return false;
+    }
+  }, [accessToken]);
 
   useEffect(() => {
     if (userInfo) {
@@ -97,7 +113,7 @@ const SettingsScreen = () => {
 
   useEffect(() => {
     if (accessToken && !userInfo) {
-      dispatch(getUserInfo(logout));
+      dispatch(getUserInfo());
 
       try {
         const decoded = jwtDecode<DecodedAccessToken>(accessToken);
@@ -125,16 +141,25 @@ const SettingsScreen = () => {
         {
           text: "Sign Out",
           style: "destructive",
-          onPress: async () => {
-            await dispatch(disableFCMToken());
-            await dispatch(performLogout());
-          },
+          onPress: () => signOut(dispatch),
         },
       ]
     );
   }, [dispatch]);
 
-  if (!accessToken) {
+  /**
+   * Dev-only: reports the same signal tokenRefresh emits when the server rejects
+   * the refresh token with invalid_grant, so the expired-session path can be
+   * checked without waiting for a real token to die.
+   */
+  const handleSimulateSilentLogout = useCallback(() => {
+    authEmitter.emit(Event.AuthSession, {
+      status: "expired",
+      rotationLost: false,
+    });
+  }, []);
+
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>
@@ -206,6 +231,18 @@ const SettingsScreen = () => {
             <Text style={styles.logoutText}>Sign Out</Text>
           </View>
         </TouchableOpacity>
+
+        {__DEV__ && isSuperAppDeveloper && (
+          <TouchableOpacity
+            activeOpacity={0.5}
+            style={styles.debugLogoutButton}
+            onPress={handleSimulateSilentLogout}
+          >
+            <Text style={styles.debugLogoutText}>
+              DEV: Simulate Silent Logout (invalid_grant)
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <BusinessCardSheet
@@ -287,6 +324,21 @@ const createStyles = (colorScheme: "light" | "dark") =>
       fontSize: 16,
       lineHeight: 20,
       color: Colors[colorScheme].primaryBackgroundColor,
+      fontWeight: "600",
+    },
+    debugLogoutButton: {
+      marginHorizontal: 60,
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: Colors[colorScheme].borderColor,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    debugLogoutText: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: Colors[colorScheme].mutedTextColor,
       fontWeight: "600",
     },
   });

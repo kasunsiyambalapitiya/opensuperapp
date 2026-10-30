@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 import { HapticTab } from "@/components/HapticTab";
+import OfflineAwareTabBar from "@/components/OfflineAwareTabBar";
+import SimulateOfflineButton from "@/components/SimulateOfflineButton";
 import TabBarBackground from "@/components/ui/TabBarBackground";
 import { Colors } from "@/constants/Colors";
 import {
@@ -23,6 +25,7 @@ import {
   MY_APPS_TAB_NAME,
   PROFILE_TAB_NAME,
 } from "@/constants/Constants";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
 import { RootState } from "@/context/store";
 import { DEFAULT_TAB_CONFIG } from "@/types/remoteConfig.types";
 import { useTabVisibilityRules } from "@/hooks/useRemoteConfig";
@@ -94,25 +97,31 @@ const tabs: TabType[] = [
 ];
 
 export default function TabLayout() {
-  useRestoreLastTab();
-
   const authEmail = useSelector((state: RootState) => state.auth.email);
   const workEmail = useSelector(
     (state: RootState) => state.userInfo.userInfo?.workEmail
   );
   const email = authEmail ?? workEmail ?? null;
-  const authState = useSelector((state: RootState) => state.auth.accessToken);
-  const isAuthenticated = Boolean(authState);
+  const isAuthenticated = useSelector(selectIsSignedIn);
 
   const { loading, rules } = useTabVisibilityRules();
+  const effectiveRules = loading ? DEFAULT_TAB_CONFIG : rules;
+
+  useRestoreLastTab(
+    (tabName) => shouldShowTab(tabName, email, isAuthenticated, effectiveRules),
+    !loading
+  );
 
   return (
     <Tabs
+      tabBar={(props) => <OfflineAwareTabBar {...props} />}
       screenOptions={{
         tabBarActiveTintColor: Colors.companyOrange,
         headerShown: true,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
+        // headerRight is taken by some tabs; the left is free on all of them.
+        headerLeft: __DEV__ ? () => <SimulateOfflineButton /> : undefined,
         tabBarStyle: Platform.select({
           ios: {
             position: "absolute",
@@ -121,7 +130,6 @@ export default function TabLayout() {
       }}
     >
       {tabs.map((tab, index) => {
-        const effectiveRules = loading ? DEFAULT_TAB_CONFIG : rules;
         const showTab = shouldShowTab(tab.name, email, isAuthenticated, effectiveRules);
 
         return (

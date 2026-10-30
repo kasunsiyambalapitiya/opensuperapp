@@ -19,13 +19,19 @@ import SignInMessage from "@/components/SignInMessage";
 import SignInModal from "@/components/SignInModal";
 import { Colors } from "@/constants/Colors";
 import { NOT_DOWNLOADED } from "@/constants/Constants";
+import { selectIsSignedIn } from "@/context/slices/authSlice";
+import {
+  removeDownloading,
+  updateDownloadProgress,
+} from "@/context/slices/appSlice";
 import { AppDispatch, RootState } from "@/context/store";
+import { useReconnectCount } from "@/hooks/useReconnectCount";
 import {
   downloadMicroApp,
   loadMicroAppDetails,
   removeMicroApp,
 } from "@/services/appStoreService";
-import { logout } from "@/services/authService";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -46,7 +52,8 @@ const Store = () => {
   const downloadProgress = useSelector(
     (state: RootState) => state.apps.downloadProgress
   );
-  const { accessToken } = useSelector((state: RootState) => state.auth);
+  const isSignedIn = useSelector(selectIsSignedIn);
+  const reconnectCount = useReconnectCount();
   const { defaultMicroAppIds } = useSelector(
     (state: RootState) => state.appConfig
   );
@@ -66,7 +73,8 @@ const Store = () => {
   const activeDownloadsRef = useRef(new Set<string>());
 
   const colorScheme = useColorScheme();
-  const styles = createStyles(colorScheme ?? "light");
+  const tabBarHeight = useBottomTabBarHeight();
+  const styles = createStyles(colorScheme ?? "light", tabBarHeight);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -75,14 +83,17 @@ const Store = () => {
     };
   }, []);
 
-  // load micro apps list
+  // load micro apps list, and again on reconnect: a session restored offline stays
+  // signed in throughout, so isSignedIn alone never retries a load that did not get through
   useEffect(() => {
     const initializeApps = async () => {
-      if (!accessToken) return;
+      // Not on accessToken: a session restored offline has none in Redux, and
+      // apiRequest takes the token from SecureStore, refreshing it if it has to.
+      if (!isSignedIn) return;
 
       setIsLoading(true);
       try {
-        await loadMicroAppDetails(dispatch, logout);
+        await loadMicroAppDetails(dispatch);
       } finally {
         if (isMountedRef.current) {
           setIsLoading(false);
@@ -91,9 +102,19 @@ const Store = () => {
     };
 
     initializeApps();
-  }, [dispatch, accessToken]);
+  }, [dispatch, isSignedIn, reconnectCount]);
 
   const handleRemoveMicroApp = async (dispatch: AppDispatch, appId: string) => {
+    // A background version update can be writing the same files; removing
+    // underneath it leaves the app half-installed and re-marked as downloaded.
+    if (downloading.includes(appId) || activeDownloadsRef.current.has(appId)) {
+      Alert.alert(
+        "Please wait",
+        "This app is still installing. Try again once it finishes."
+      );
+      return;
+    }
+
     Alert.alert(
       "Confirm Removal",
       "Are you sure you want to remove this app?",
@@ -103,7 +124,7 @@ const Store = () => {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            await removeMicroApp(dispatch, appId, logout);
+            await removeMicroApp(dispatch, appId);
           },
         },
       ]
@@ -124,56 +145,38 @@ const Store = () => {
     }
   }, [searchQuery, apps]);
 
-  // Process the installation queue
+  // Process the installation queue, one app at a time
   useEffect(() => {
-    let isProcessing = false;
+    if (installationQueue.length === 0) return;
+
+    const currentItem = installationQueue[0];
+    // Another run of this effect already owns this download; leave it alone,
+    // and in particular do not clear its entry from activeDownloadsRef.
+    if (activeDownloadsRef.current.has(currentItem.appId)) return;
+    activeDownloadsRef.current.add(currentItem.appId);
+
     const processQueue = async () => {
-      if (
-        isProcessing ||
-        installationQueue.length === 0 ||
-        !isMountedRef.current
-      )
-        return;
-
-      isProcessing = true;
-      const currentItem = installationQueue[0];
-
       try {
-        if (!activeDownloadsRef.current.has(currentItem.appId)) {
-          activeDownloadsRef.current.add(currentItem.appId);
-
-          dispatch({
-            type: "SET_DOWNLOAD_PROGRESS",
-            payload: { appId: currentItem.appId, progress: 0 },
-          });
-          await downloadMicroApp(
-            dispatch,
-            currentItem.appId,
-            currentItem.downloadUrl,
-            logout
-          );
-          if (isMountedRef.current) {
-            setInstallationQueue((prev) =>
-              prev.filter((item) => item.appId !== currentItem.appId)
-            );
-          }
-        }
+        dispatch(
+          updateDownloadProgress({ appId: currentItem.appId, progress: 0 })
+        );
+        await downloadMicroApp(
+          dispatch,
+          currentItem.appId,
+          currentItem.downloadUrl
+        );
       } catch (error) {
         console.error("Installation failed:", error);
+        dispatch(removeDownloading(currentItem.appId));
         if (isMountedRef.current) {
           Alert.alert("Error", "Installation failed try again later");
-          dispatch({
-            type: "REMOVE_DOWNLOADING_APP",
-            payload: currentItem.appId,
-          });
+        }
+      } finally {
+        activeDownloadsRef.current.delete(currentItem.appId);
+        if (isMountedRef.current) {
           setInstallationQueue((prev) =>
             prev.filter((item) => item.appId !== currentItem.appId)
           );
-        }
-      } finally {
-        if (isMountedRef.current) {
-          activeDownloadsRef.current.delete(currentItem.appId);
-          isProcessing = false;
         }
       }
     };
@@ -184,7 +187,7 @@ const Store = () => {
   // Modified download handler to create a serialized task queue
   const handleDownload = (appId: string, downloadUrl: string) => {
     //if not logged in, show signin
-    if (!accessToken) {
+    if (!isSignedIn) {
       setShowModal(true);
       return;
     }
@@ -197,17 +200,13 @@ const Store = () => {
     const isInDownloadingState = downloading.includes(appId);
 
     if (!isAlreadyQueued && !isCurrentlyDownloading && !isInDownloadingState) {
-      dispatch({
-        type: "SET_DOWNLOAD_PROGRESS",
-        payload: { appId, progress: 0 },
-      });
+      dispatch(updateDownloadProgress({ appId, progress: 0 }));
       setInstallationQueue((prev) => [...prev, { appId, downloadUrl }]);
-      dispatch({ type: "ADD_DOWNLOADING_APP", payload: appId });
     }
   };
 
   // When default apps added need to remove this logic
-  if (!accessToken) {
+  if (!isSignedIn) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.signInContainer}>
@@ -236,7 +235,7 @@ const Store = () => {
       />
 
       <SignInModal visible={showModal} onClose={() => setShowModal(false)} />
-      {isLoading ? (
+      {isLoading && apps.length === 0 ? (
         <View
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
         >
@@ -293,7 +292,7 @@ const Store = () => {
   );
 };
 
-const createStyles = (colorScheme: "light" | "dark") =>
+const createStyles = (colorScheme: "light" | "dark", tabBarHeight: number) =>
   StyleSheet.create({
     searchContainer: {
       flexDirection: "row",
@@ -330,7 +329,7 @@ const createStyles = (colorScheme: "light" | "dark") =>
       fontSize: 16,
     },
     listContent: {
-      paddingBottom: 80,
+      paddingBottom: tabBarHeight,
     },
     container: {
       flex: 1,
