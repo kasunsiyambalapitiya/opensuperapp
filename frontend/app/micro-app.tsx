@@ -893,25 +893,13 @@ const MicroApp = () => {
    * and buffer unless another screen holds them. A task nobody holds is left over from an
    * earlier JS run, with no screen to deliver its fixes to, so it is stopped too.
    * Safe to call when no stream is running.
+   * @throws When the background task could not be stopped. The foreground watch and the
+   * keep-awake are released first, and the owner and buffer are left as they were: a
+   * task still recording must not look released to the caller.
    */
   const teardownLocationStream = useCallback(async () => {
     locationSub.current?.remove();
     locationSub.current = null;
-
-    if (
-      backgroundLocationOwner === null ||
-      backgroundLocationOwner === locationScreenId
-    ) {
-      backgroundLocationOwner = null;
-      try {
-        await stopBackgroundLocationUpdates();
-      } catch (error) {
-        // Release the rest regardless. The next start that needs the task stopped
-        // tries again, and fails visibly if it still cannot.
-        console.error("Failed to stop background location updates:", error);
-      }
-      await clearLocationBuffer();
-    }
 
     try {
       // deactivateKeepAwake() is async and rejects when the tag was never activated,
@@ -921,7 +909,32 @@ const MicroApp = () => {
     } catch {
       // Not activated - nothing to release.
     }
+
+    if (
+      backgroundLocationOwner === null ||
+      backgroundLocationOwner === locationScreenId
+    ) {
+      await stopBackgroundLocationUpdates();
+      backgroundLocationOwner = null;
+      await clearLocationBuffer();
+    }
   }, [keepAwakeTag, locationScreenId]);
+
+  /**
+   * Handles a teardown nobody is waiting on, which has no page to report to. A task that
+   * would not stop has no screen left to deliver its fixes, so it is handed to nobody:
+   * no screen drains its buffer, and the next teardown of any screen stops it again.
+   * @param error - Why the task could not be stopped
+   */
+  const releaseUnstoppedTask = useCallback(
+    (error: unknown) => {
+      console.error("Failed to stop background location updates:", error);
+      if (backgroundLocationOwner === locationScreenId) {
+        backgroundLocationOwner = null;
+      }
+    },
+    [locationScreenId]
+  );
 
   /**
    * Opens a position stream for the micro app.
@@ -973,8 +986,20 @@ const MicroApp = () => {
         return;
       }
 
-      // Starting twice replaces the stream rather than stacking two watches.
-      await teardownLocationStream();
+      // Starting twice replaces the stream rather than stacking two watches. If the
+      // previous one's background task cannot be stopped it is still recording, and a
+      // new stream must not start as though it were not.
+      try {
+        await teardownLocationStream();
+      } catch (error) {
+        console.error("Failed to release the previous location stream:", error);
+        if (isStale()) return;
+        sendResponseToWeb(
+          "rejectLocationUpdates",
+          "unavailable" as LocationRejectReason
+        );
+        return;
+      }
       if (isStale()) return;
 
       try {
@@ -1007,7 +1032,12 @@ const MicroApp = () => {
         }
       } catch (error) {
         console.error("Failed to start location updates:", error);
-        await teardownLocationStream();
+        try {
+          await teardownLocationStream();
+        } catch (teardownError) {
+          // The start is already being rejected; there is nothing more to tell the page.
+          console.error("Failed to clean up after the start:", teardownError);
+        }
         if (isStale()) return;
         sendResponseToWeb(
           "rejectLocationUpdates",
@@ -1028,10 +1058,16 @@ const MicroApp = () => {
     ]
   );
 
-  /** Closes the position stream and forgets the delivered-timestamp history. */
+  /**
+   * Closes the position stream and forgets the delivered-timestamp history.
+   * @throws When the background task could not be stopped
+   */
   const stopLocationUpdates = useCallback(async () => {
-    await teardownLocationStream();
-    deliveredFixTimestamps.current.clear();
+    try {
+      await teardownLocationStream();
+    } finally {
+      deliveredFixTimestamps.current.clear();
+    }
   }, [teardownLocationStream]);
 
   /**
@@ -1071,9 +1107,9 @@ const MicroApp = () => {
   // says it is still running - so tear it down when the micro app is navigated away from.
   useEffect(() => {
     return () => {
-      void enqueueLocationTask(teardownLocationStream);
+      enqueueLocationTask(teardownLocationStream).catch(releaseUnstoppedTask);
     };
-  }, [enqueueLocationTask, teardownLocationStream]);
+  }, [enqueueLocationTask, releaseUnstoppedTask, teardownLocationStream]);
 
   // A new Developer app URL is a new app: re-read what it declares, drop any start the
   // previous page requested, and close the stream it opened. The teardown releases the
@@ -1083,8 +1119,14 @@ const MicroApp = () => {
 
     devServerGeneration.current += 1;
     devServerPermissions.current = fetchDevServerPermissions(webUri);
-    void enqueueLocationTask(stopLocationUpdates);
-  }, [enqueueLocationTask, isDeveloper, stopLocationUpdates, webUri]);
+    enqueueLocationTask(stopLocationUpdates).catch(releaseUnstoppedTask);
+  }, [
+    enqueueLocationTask,
+    isDeveloper,
+    releaseUnstoppedTask,
+    stopLocationUpdates,
+    webUri,
+  ]);
 
   // Handle messages from WebView
   const onMessage = async (event: WebViewMessageEvent) => {
@@ -1223,7 +1265,16 @@ const MicroApp = () => {
           break;
         }
         case TOPIC.LOCATION_STOP:
-          await enqueueLocationTask(stopLocationUpdates);
+          try {
+            await enqueueLocationTask(stopLocationUpdates);
+          } catch (error) {
+            // The page asked for tracking to end and it may not have: say so.
+            console.error("Failed to stop location updates:", error);
+            sendResponseToWeb(
+              "rejectLocationUpdates",
+              "unavailable" as LocationRejectReason
+            );
+          }
           break;
         default:
           console.error("Unknown topic:", topic);

@@ -246,6 +246,9 @@ re-prompt, so retrying is pointless. `"background_permission_denied"` means fore
 location was granted but background was not (on iOS, "While Using the App" rather than
 "Always"); retry without `background: true` to get a foreground-only stream.
 
+`"unavailable"` is also sent when `requestStopLocationUpdates` (or a restart) could not stop
+a background task: tracking may still be running, so treat the stop as not done.
+
 The host also stops the stream automatically when the user navigates away from the
 micro app, so a watch can never outlive the screen.
 
