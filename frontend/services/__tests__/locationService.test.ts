@@ -13,23 +13,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { ensureLocationPermissions } from "@/services/locationService";
+import {
+  ensureLocationPermissions,
+  stopBackgroundLocationUpdates,
+} from "@/services/locationService";
 import {
   hasServicesEnabledAsync,
+  hasStartedLocationUpdatesAsync,
   requestBackgroundPermissionsAsync,
   requestForegroundPermissionsAsync,
+  stopLocationUpdatesAsync,
 } from "expo-location";
 
 jest.mock("expo-location", () => ({
   Accuracy: { High: 4, Balanced: 3 },
   hasServicesEnabledAsync: jest.fn(),
+  hasStartedLocationUpdatesAsync: jest.fn(),
   requestForegroundPermissionsAsync: jest.fn(),
   requestBackgroundPermissionsAsync: jest.fn(),
+  stopLocationUpdatesAsync: jest.fn(),
 }));
 
 const mockServicesEnabled = hasServicesEnabledAsync as jest.Mock;
 const mockForeground = requestForegroundPermissionsAsync as jest.Mock;
 const mockBackground = requestBackgroundPermissionsAsync as jest.Mock;
+const mockHasStarted = hasStartedLocationUpdatesAsync as jest.Mock;
+const mockStop = stopLocationUpdatesAsync as jest.Mock;
 
 describe("ensureLocationPermissions", () => {
   beforeEach(() => {
@@ -68,5 +77,31 @@ describe("ensureLocationPermissions", () => {
     await expect(ensureLocationPermissions(true)).resolves.toBe(
       "background_permission_denied"
     );
+  });
+});
+
+describe("stopBackgroundLocationUpdates", () => {
+  beforeEach(() => {
+    mockHasStarted.mockReset().mockResolvedValue(true);
+    mockStop.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("stops a running task", async () => {
+    await expect(stopBackgroundLocationUpdates()).resolves.toBeUndefined();
+    expect(mockStop).toHaveBeenCalled();
+  });
+
+  it("does nothing when no task is running", async () => {
+    mockHasStarted.mockResolvedValue(false);
+
+    await expect(stopBackgroundLocationUpdates()).resolves.toBeUndefined();
+    expect(mockStop).not.toHaveBeenCalled();
+  });
+
+  // A caller taking the task over must not proceed as if it had stopped.
+  it("rejects when a running task cannot be stopped", async () => {
+    mockStop.mockRejectedValue(new Error("stop failed"));
+
+    await expect(stopBackgroundLocationUpdates()).rejects.toThrow("stop failed");
   });
 });

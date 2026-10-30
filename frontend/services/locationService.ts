@@ -131,13 +131,13 @@ export const startBackgroundLocationUpdates = async (
   });
 };
 
-/** Stops the background task if it is running. Safe to call when it is not. */
+/**
+ * Stops the background task if it is running. Safe to call when it is not.
+ * @throws When the task is running and could not be stopped, so a caller about to take
+ * it over can tell it is still running with another stream's options.
+ */
 export const stopBackgroundLocationUpdates = async () => {
-  try {
-    if (await hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
-      await stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    }
-  } catch (error) {
-    console.error("Failed to stop background location updates:", error);
+  if (await hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+    await stopLocationUpdatesAsync(LOCATION_TASK_NAME);
   }
 };

@@ -857,7 +857,13 @@ const MicroApp = () => {
       backgroundLocationOwner === locationScreenId
     ) {
       backgroundLocationOwner = null;
-      await stopBackgroundLocationUpdates();
+      try {
+        await stopBackgroundLocationUpdates();
+      } catch (error) {
+        // Release the rest regardless. The next start that needs the task stopped
+        // tries again, and fails visibly if it still cannot.
+        console.error("Failed to stop background location updates:", error);
+      }
       await clearLocationBuffer();
     }
 
@@ -939,6 +945,9 @@ const MicroApp = () => {
           // Only one background task exists, and this screen's own was released above.
           // One still running is another screen's or left over from an earlier JS run:
           // take it over, discarding its buffered fixes rather than delivering them here.
+          // If it cannot be stopped, the stop throws before the buffer or the owner is
+          // touched and this start fails: the task would otherwise keep running with
+          // the other stream's options and notification.
           await stopBackgroundLocationUpdates();
           await clearLocationBuffer();
           backgroundLocationOwner = locationScreenId;
